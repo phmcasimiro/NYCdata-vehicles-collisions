@@ -1,0 +1,26 @@
+# === Credenciais e Segurança ===
+.env
+*.env
+**/.env
+.env.*
+!.env.example
+
+# === Ambientes Virtuais (Python) ===
+.venv/
+venv/
+ENV/
+env/
+target/
+
+# === Artefatos de Relatórios (Quarto / Jupyter) ===
+*_files/
+.quarto/
+.jupyter_cache/
+pydantic_settings.json
+
+# === Caches do Sistema e Python ===
+__pycache__/
+*.py[cod]
+*$*
+.pytest_cache/
+.ipynb_checkpoints/

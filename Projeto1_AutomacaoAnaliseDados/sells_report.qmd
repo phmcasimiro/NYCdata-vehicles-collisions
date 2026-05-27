@@ -1,0 +1,136 @@
+---
+title: "Relatório de Análise Estatística de Vendas"
+author: "Departamento de Dados"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-title: "Índice"
+    number-sections: true
+    smooth-scroll: true
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{python}
+import pandas as pd
+import plotly.express as px
+import nbformat
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente
+load_dotenv()
+nome_arquivo = os.getenv("NOME_ARQUIVO_VENDAS")
+
+# Caminho dinâmico para a pasta Downloads
+caminho = Path.home() / "Downloads" / nome_arquivo
+
+try:
+    ds_1 = pd.read_excel(caminho)
+except FileNotFoundError:
+    raise FileNotFoundError(f"Arquivo de vendas não encontrado no local esperado: {caminho}")
+
+# ---------------------------------------------------------
+# CÁLCULOS ESTATÍSTICOS
+# ---------------------------------------------------------
+valor_total_vendido = ds_1['Valor Final'].sum()
+
+# Agrupamento base
+vendas_por_codigo = ds_1.groupby('Código Venda')['Quantidade'].sum()
+valor_por_venda = ds_1.groupby('Código Venda')['Valor Final'].sum()
+
+# Indicadores de Quantidade
+maior_quantidade = vendas_por_codigo.max()
+vendas_maximas = vendas_por_codigo[vendas_por_codigo == maior_quantidade].index
+lista_codigos_vendas_maximas = ', '.join(map(str, vendas_maximas))
+
+menor_quantidade = vendas_por_codigo.min()
+vendas_minimas = vendas_por_codigo[vendas_por_codigo == menor_quantidade].index
+lista_codigos_vendas_minimas = ", ".join(map(str, vendas_minimas))
+
+# Indicadores de Valor
+maior_valor = valor_por_venda.max()
+codigos_vendas_mais_caras = valor_por_venda[valor_por_venda == maior_valor].index
+lista_codigos_vendas_mais_caras = ', '.join(map(str, codigos_vendas_mais_caras))
+
+menor_valor = valor_por_venda.min()
+codigos_vendas_mais_baratas = valor_por_venda[valor_por_venda == menor_valor].index
+lista_codigos_vendas_mais_baratas = ', '.join(map(str, codigos_vendas_mais_baratas))
+
+# Medidas de Tendência Central e Dispersão
+media_vendas = valor_por_venda.mean()
+moda_vendas = valor_por_venda.mode()
+mediana_vendas = valor_por_venda.median()
+desvio_padrao_vendas = valor_por_venda.std()
+```
+
+## Visão Geral da Operação
+
+O conjunto de dados analisado apresenta o desempenho de vendas do período, focado no volume transacional e faturamento por nota fiscal (Código Venda).
+
+* **Volume Total de Vendas (Únicas):** `{python} ds_1['Código Venda'].nunique()` transações.
+* **Faturamento Total:** R$ `{python} f"{valor_total_vendido:,.2f}"`
+* **Ticket Médio (Média por Venda):** R$ `{python} f"{media_vendas:,.2f}"`
+* **Mediana das Vendas:** R$ `{python} f"{mediana_vendas:,.2f}"`
+
+## Tendência Central e Dispersão
+
+A análise das medidas de tendência central revela uma **Assimetria Positiva (à Direita)** no faturamento.
+
+* **Moda:** R$ `{python} f"{moda_vendas[0]:,.2f}"`
+* **Desvio Padrão:** R$ `{python} f"{desvio_padrao_vendas:,.2f}"`
+* **Comportamento da Distribuição:** O fato da Média (R$ `{python} f"{media_vendas:,.2f}"`) ser superior à Mediana (R$ `{python} f"{mediana_vendas:,.2f}"`) confirma que o faturamento é impulsionado por um grupo seleto de vendas de alto valor, enquanto a maioria das transações se concentra em patamares menores.
+
+## Análise Visual e Distribuição
+
+```{python}
+# Criando um Histograma com Boxplot na margem
+fig = px.histogram(
+    ds_1, 
+    x="Valor Final", 
+    nbins=50,
+    title="Análise de Assimetria e Distribuição de Vendas",
+    marginal="box",
+    color_discrete_sequence=['#636EFA']
+)
+
+# Melhorando o visual
+fig.update_layout(
+    xaxis_title="Valor da Venda (R$)",
+    yaxis_title="Frequência (Quantidade de Vendas)",
+    bargap=0.1
+)
+
+fig.show()
+```
+
+### Leitura do Gráfico
+
+1. **A Caixa Central:** Representa onde estão 50% dos seus dados. É a maior parte das vendas.
+2. **Quartis:** 
+   - A base da caixa (Q1 - 1º Quartil): 25% das vendas estão abaixo desse valor.
+   - O topo da caixa (Q3 - 3º Quartil): 75% das vendas estão abaixo desse valor.
+3. **Assimetria:** Como a linha da mediana não está exatamente no meio da caixa, mas está mais para baixo, significa que os dados são "tendenciosos" (assimétricos).
+4. **Outliers:** Qualquer ponto que aparecer fora das hastes é um *Outlier* (valor fora da curva). Na prática, são vendas excepcionais.
+
+## Extremos e Recordes
+
+Identificação das transações que mais se destacaram no período:
+
+### Volume de Itens
+* **Maior Quantidade de Itens:** `{python} maior_quantidade` unidades (Vendas: `{python} lista_codigos_vendas_maximas`).
+* **Menor Quantidade de Itens:** `{python} menor_quantidade` unidade (Vendas: `{python} lista_codigos_vendas_minimas`).
+
+### Valores Financeiros
+* **Venda de Maior Faturamento:** R$ `{python} f"{maior_valor:,.2f}"` (Código: `{python} lista_codigos_vendas_mais_caras`).
+* **Venda de Menor Faturamento:** R$ `{python} f"{menor_valor:,.2f}"` (Código: `{python} lista_codigos_vendas_mais_baratas`).
+
+---
+
+## Conclusões e Insights
+1. **Perfil de Venda:** A operação é caracterizada por um alto volume de vendas de ticket baixo/médio, com a presença de "vendas estrela" que elevam a média geral.
+2. **Consistência:** O desvio padrão sugere uma variação considerável, recomendando-se uma análise mais profunda sobre os produtos que compõem as vendas *outliers* para tentar replicar esse comportamento em outros clientes.

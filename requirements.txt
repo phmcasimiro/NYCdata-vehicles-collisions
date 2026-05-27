@@ -1,0 +1,10 @@
+# Análise de Dados
+pandas>=2.2.0
+
+# Automação de Interface (GUI)
+pyautogui>=0.9.54
+
+# Dependências auxiliares comuns para automação e dados
+numpy>=1.26.0
+python-dotenv>=1.0.0
+openpyxl
