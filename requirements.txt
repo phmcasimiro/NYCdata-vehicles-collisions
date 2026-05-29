@@ -1,10 +1,21 @@
-# Análise de Dados
+# ==============================================================================
+# ECOSSISTEMA CORE DE DADOS & BANCO (Bronze/Silver/Gold)
+# ==============================================================================
 pandas>=2.2.0
-
-# Automação de Interface (GUI)
-pyautogui>=0.9.54
-
-# Dependências auxiliares comuns para automação e dados
 numpy>=1.26.0
-python-dotenv>=1.0.0
 openpyxl
+
+# Banco de Dados & Conectores Relacionais
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
+
+# ==============================================================================
+# GOVERNANÇA, CONTRATOS DE DADOS & MLOps
+# ==============================================================================
+pydantic>=2.10.0
+python-dotenv>=1.0.0
+
+# ==============================================================================
+# AUTOMAÇÃO DE INTERFACE (GUI) & AUXILIARES
+# ==============================================================================
+pyautogui>=0.9.54
