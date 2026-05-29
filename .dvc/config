@@ -1,0 +1,4 @@
+[core]
+    remote = meu_remote
+['remote "meu_remote"']
+    url = C:\Users\HP\Documents\Projetos\dvc_storage_local
