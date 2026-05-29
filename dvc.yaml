@@ -1,0 +1,14 @@
+stages:
+  ingest_bronze:
+    cmd: python NYCdata/scripts/1_nycdata_etl.py
+    deps:
+      - NYCdata/scripts/1_nycdata_etl.py
+    # Como a Bronze insere direto no banco, no futuro se você criar um manifesto para ela, ele entra aqui como out.
+
+  transform_silver:
+    cmd: python NYCdata/scripts/2_nycdata_silver.py
+    deps:
+      - NYCdata/scripts/2_nycdata_silver.py
+      - NYCdata/scripts/schemas.py
+    outs:
+      - NYCdata/metadata/silver_status.json
