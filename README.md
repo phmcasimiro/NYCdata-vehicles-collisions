@@ -1,60 +1,60 @@
-# GEODEV
+# NYCdata Vehicles Collisions Pipeline
 
-- Documentação do Estudo de Python, Engenharia de ML e Engenharia de IA
-- No arquivo `python.ipynb` estão contidos os estudo de python
-- No diretório `Projeto1_AutomacaoAnaliseDados` estão contidos os materiais relativos ao primeiro projeto do curso Python Impressionador.
+# Pipeline de Dados: Colisões de Veículos de Nova York (NYC)
 
+Este projeto consiste no desenvolvimento de um pipeline de dados para o processamento, armazenamento e visualização do conjunto de dados público *NYC Motor Vehicle Collisions*, que contabiliza mais de 2,26 milhões de registros de acidentes de trânsito. O sistema adota a arquitetura de medalhões (divida em camadas Bronze, Silver e Gold) para estruturar o fluxo da informação a partir da coleta bruta até a disponibilidade analítica.
+
+## Estágio Atual de Desenvolvimento
+
+### 1. Camada Bronze (Ingestão)
+* Realização da coleta incremental de dados brutos diretamente da API SODA (*Socrata Open Data API*).
+* Utilização de mecanismos de paginação para a transferência dos dados da origem para o armazenamento local.
+
+### 2. Camada Silver (Higienização e Governança)
+* Validação estrutural e de tipagem dos dados por meio de contratos de esquema implementados com a biblioteca Pydantic.
+* Processamento dos dados em blocos (*chunks*) de 100.000 registros para controle do consumo de memória RAM.
+* Isolamento de registros que violam as regras de validação em uma estrutura de desvio (*Dead Letter Queue* - DLQ) para fins de auditoria.
+* Filtragem geográfica de coordenadas via caixa delimitadora (*bounding box*) dos limites espaciais da cidade de Nova York.
+* Conversão de dados de latitude e longitude para o formato geométrico padrão *Well-Known Text* (WKT `POINT`).
+* Persistência dos dados processados em banco de dados PostgreSQL com extensão espacial PostGIS, estruturados com índices GiST (espaciais) e B-Tree (temporais).
+
+### 3. Orquestração e Automação
+* Mapeamento de dependências e execução das etapas do pipeline estruturados em um Grafo Acíclico Direcionado (DAG) controlado via ferramenta *Data Version Control* (DVC).
+* Automação de execução configurada para disparos diários às 13:00 h por meio do Agendador de Tarefas do sistema operacional Windows, que invoca um script de lote (`.bat`) encarregado de ativar o ambiente virtual Python e acionar o DVC.
+
+### 4. Camada Gold e Visualização (Em Construção)
+* Desenvolvimento de protótipo de interface gráfica para visualização de dados por meio da biblioteca Dash.
+* Definição da granularidade e dos agrupamentos para consolidação das tabelas agregadas finais (*Data Marts*).
 
 ## ÁRVORE DE DIRETÓRIOS E ARQUIVOS
 
 ```
 GeoDev/
+├── .dvc/
+├── .dvcignore
+├── .gitignore
+├── dvc.lock
 ├── dvc.yaml
-├── posts.md
-├── README.md
-├── requirements.txt
 ├── NYCdata/
+│   ├── .env
+│   ├── data/
+│   │   └── bronze_raw/
 │   ├── docker-compose.yml
+│   ├── metadata/
+│   │   ├── .gitignore
+│   │   └── silver_status.json
 │   ├── NYCdata_MotorVehicleCollisions.ipynb
 │   ├── pipeline_nyc.bat
 │   ├── README.md
 │   ├── run_pipeline.bat
-│   ├── data/
-│   │   └── bronze_raw/
-│   ├── metadata/
-│   │   └── silver_status.json
 │   └── scripts/
 │       ├── 1_nycdata_etl.py
-│       ├── 2_nycdata_silver_v1.py
 │       ├── 2_nycdata_silver.py
+│       ├── 2_nycdata_silver_v1.py
+│       ├── __pycache__/
 │       └── schemas.py
-├── Projeto1_AutomacaoAnaliseDados/
-│   ├── develop.ipynb
-│   ├── ingestion.py
-│   ├── README.MD
-│   ├── requirements.txt
-│   ├── sells_report.html
-│   ├── sells_report.qmd
-│   └── sells_report_files/
-│       └── libs/
-│           ├── bootstrap/
-│           │   ├── bootstrap-67270d1595a62d14f123c043d4fb2f18.min.css
-│           │   ├── bootstrap-icons.css
-│           │   └── bootstrap.min.js
-│           ├── clipboard/
-│           │   └── clipboard.min.js
-│           └── quarto-html/
-│               ├── anchor.min.js
-│               ├── popper.min.js
-│               ├── quarto-syntax-highlighting-7f8f88aac4f3542376d5c11b86a4c14d.css
-│               ├── quarto.js
-│               ├── tippy.css
-│               ├── tippy.umd.min.js
-│               ├── zenscroll-min.js
-│               └── tabsets/
-│                   └── tabsets.js
-└── Teoria_Exercicios/
-    ├── ExercicioEstruturaSequencial.ipynb
-    ├── ExercicioEstruturaSequencialGabarito.ipynb
-    └── python.ipynb
+├── posts.md
+├── README.md
+├── requirements.txt
+└── venv/
 ```
