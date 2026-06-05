@@ -154,7 +154,7 @@ app.layout = html.Div(
             style={"textAlign": "center", "marginBottom": "5px", "fontWeight": "700", "color": THEME_COLORS["text_highlight"]}
         ),
         html.P(
-            "Integrated geospatial and temporal analyses of vehicle collisions in New York.",
+            "Integrated geospatial and temporal analyses of accidents in New York.",
             style={"textAlign": "center", "color": "#8ea1b4", "marginBottom": "40px", "fontWeight": "400"}
         ),
         

@@ -207,3 +207,27 @@ if __name__ == "__main__":
 
     duracao = (time.time() - start_time) / 60
     print(f"\n⏱️ Tempo total de processamento do job: {duracao:.2f} minutos.")
+
+    # ==============================================================================
+    # GENERATION OF THE BRONZE MANIFEST FOR DVC ORCHESTRATION
+    # ==============================================================================
+    import json
+    from datetime import datetime
+
+    # Estrutura o dicionário de metadados do estado atual da carga
+    bronze_manifest = {
+        "status": "success",
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+        "pipeline_version": "v2.0.0"
+    }
+
+    # Define o caminho físico correto baseado na estrutura real do seu projeto
+    metadata_dir = os.path.join("NYCdata", "metadata")
+    os.makedirs(metadata_dir, exist_ok=True)  # Garante a criação da pasta caso não exista
+    manifest_path = os.path.join(metadata_dir, "bronze_status.json")
+
+    # Escreve o arquivo JSON de forma limpa no disco
+    with open(manifest_path, "w") as f:
+        json.dump(bronze_manifest, f, indent=4)
+
+    print("📝 Manifesto 'bronze_status.json' gerado com sucesso para o DVC!")

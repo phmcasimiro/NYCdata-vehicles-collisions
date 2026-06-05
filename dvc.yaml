@@ -1,14 +1,28 @@
+# -----------DVC.yaml----------------
+# O fluxo do projeto:
+# O arquivo "NYCdata\run_pipeline.bat" está agendado no Agendador de Tarefas do Windows para rodar diariamente às 13h00.
+# O "NYCdata\run_pipeline.bat" executa o comando dvc repro, que aciona o pipeline definido no arquivo "dvc.yaml".
+# O script "NYCdata\scripts\1_nycdata_etl.py" (Bronze) busca dados na Web ➡️ Salva no Postgres ➡️ Atualiza o arquivo "NYCdata\metadata\bronze_status.json".
+# O DVC percebe que o "NYCdata\metadata\bronze_status.json" mudou ➡️ Aciona o script "NYCdata\scripts\2_nycdata_silver.py" (Silver).
+# O script Silver lê a tabela Bronze do Postgres "nycdata_vehicles_collisions_raw" ➡️ Limpa ➡️ 
+# Salva na tabela Silver do Postgres "nycdata_vehicles_collisions_cleaned" ➡️ Cospe o "NYCdata\metadata\silver_status.json".
+# -----------------------------------
+
 stages:
   ingest_bronze:
     cmd: python NYCdata/scripts/1_nycdata_etl.py
     deps:
       - NYCdata/scripts/1_nycdata_etl.py
-    # Como a Bronze insere direto no banco, no futuro se você criar um manifesto para ela, ele entra aqui como out.
+    always_changed: true
+    outs:
+      - NYCdata/metadata/bronze_status.json
 
   transform_silver:
     cmd: python NYCdata/scripts/2_nycdata_silver.py
     deps:
       - NYCdata/scripts/2_nycdata_silver.py
       - NYCdata/scripts/schemas.py
-    outs:
-      - NYCdata/metadata/silver_status.json
+      - NYCdata/metadata/bronze_status.json
+    metrics:
+      - NYCdata/metadata/silver_status.json:
+          cache: false
