@@ -204,10 +204,24 @@ class CollisionSilverSchema(BaseModel):
             raise ValueError("O campo 'crash_timestamp' é obrigatório para a consistência analítica e não pode ser nulo.")
         return v
 
-    # Validadores de Sanitização Existentes (Preservados)
+    # 🏙️ VALIDADOR PARA INFRAESTRUTURA URBANA E LOCALIZAÇÃO -> Mapeia para 'UNKNOWN'
     @field_validator('borough', 'zip_code', 'location_text', 'on_street_name', 'off_street_name', 'cross_street_name', mode='before')
     @classmethod
-    def sanitize_strings(cls, v: Optional[str]) -> str:
+    def sanitize_infrastructure_strings(cls, v) -> str:
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "UNKNOWN"
+        cleaned = str(v).strip().upper()
+        return cleaned if cleaned not in ["", "NAN", "NONE", "NULL"] else "UNKNOWN"
+
+    # 🚗 VALIDADOR PARA OMNICHANNEL DE VEÍCULOS E FATORES -> Mapeia para 'UNSPECIFIED'
+    @field_validator(
+        'contributing_factor_vehicle_1', 'contributing_factor_vehicle_2', 'contributing_factor_vehicle_3', 
+        'contributing_factor_vehicle_4', 'contributing_factor_vehicle_5', 'vehicle_type_code_1', 
+        'vehicle_type_code_2', 'vehicle_type_code_3', 'vehicle_type_code_4', 'vehicle_type_code_5',
+        mode='before'
+    )
+    @classmethod
+    def sanitize_vehicle_strings(cls, v) -> str:
         if v is None or (isinstance(v, float) and pd.isna(v)):
             return "UNSPECIFIED"
         cleaned = str(v).strip().upper()

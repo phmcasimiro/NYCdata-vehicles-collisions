@@ -2,9 +2,10 @@
 import os
 import sys
 import urllib.parse
-import pandas as pd
+import json
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+import pandas as pd
 from schemas import MAP_BRONZE_TO_SILVER, CollisionSilverSchema
 
 # 1. Carrega as variáveis de ambiente
@@ -97,17 +98,15 @@ print("✅ Fase 2 concluída! Atributos temporais gerados com sucesso.")
 
 print("\n🛡️ Iniciando a validação em lote do Contrato de Dados (Pydantic + Chunking + Bounding Box)...")
 
-# 1. Alinhamento inicial de tipos e injeção de metadados para conformidade do contrato
+# 1. Alinhamento inicial de coordenadas geográficas
 df_silver["latitude"] = pd.to_numeric(df_silver["raw_latitude"], errors="coerce")
 df_silver["longitude"] = pd.to_numeric(df_silver["raw_longitude"], errors="coerce")
-df_silver["silver_processed_at"] = pd.Timestamp.now(tz="UTC")
-df_silver["pipeline_version"] = "v2.0.0"
 
 # 2. Configuração de fatiamento para controle de memória (Chunking)
 CHUNK_SIZE = 100000
 total_linhas = len(df_silver)
 validated_records = []
-rejections_list = []  # [ADITIVO DLQ] Inicializa o buffer da Dead Letter Queue
+rejections_list = []  # Inicializa o buffer da Dead Letter Queue
 errors_count = 0
 
 # Limites Oficiais da Bounding Box de NYC
@@ -132,7 +131,7 @@ for i in range(0, total_linhas, CHUNK_SIZE):
     
     for record in chunk_records:
         try:
-            # Passa os dados pelo Pydantic (Aplica UPPERCASE + TRIM e trata o Registro 24)
+            # Passa os dados pelo Pydantic (Aplica as regras higienizadas do schemas.py)
             validated_obj = CollisionSilverSchema(**record)
             val_dict = validated_obj.model_dump()
             
@@ -148,7 +147,7 @@ for i in range(0, total_linhas, CHUNK_SIZE):
             if errors_count <= 5:
                 print(f"⚠️ Registro rejeitado pelo contrato: ID {record.get('collision_id')} - Erro: {e}")
             
-            # [ADITIVO DLQ] Captura e preserva a linhagem da falha sem quebrar o laço
+            # Captura e preserva a linhagem da falha sem quebrar o laço (DLQ)
             rejections_list.append({
                 "collision_id": record.get("collision_id"),
                 "rejection_reason": str(e),
@@ -161,14 +160,19 @@ print(f"📊 Relatório de Auditoria de Qualidade Pydantic:")
 print(f"   ✅ Registros em conformidade total com o contrato: {len(validated_records):,}")
 print(f"   ❌ Registros corrompidos/enviados para a DLQ: {errors_count:,}")
 
-# 3. Sobrescrevemos o DataFrame principal e materializamos as rejeições
+# 3. Reconstrói o DataFrame principal e injeta de forma vetorizada os metadados de auditoria
 df_silver = pd.DataFrame(validated_records)
-df_rejections = pd.DataFrame(rejections_list)  # [ADITIVO DLQ] Criação do DataFrame de erros
+if not df_silver.empty:
+    df_silver["silver_processed_at"] = pd.Timestamp.now(tz="UTC")
+    df_silver["pipeline_version"] = "v2.0.0"
+
+df_rejections = pd.DataFrame(rejections_list)  # Criação do DataFrame de erros
 
 # 4. Deduplicação Fina Analítica por Chave Primária
 print("🆔 Executando a deduplicação analítica fina por 'collision_id'...")
-df_silver = df_silver.sort_values(by=["collision_id", "crash_timestamp"], ascending=[True, False])
-df_silver = df_silver.drop_duplicates(subset=["collision_id"], keep="first")
+if not df_silver.empty:
+    df_silver = df_silver.sort_values(by=["collision_id", "crash_timestamp"], ascending=[True, False])
+    df_silver = df_silver.drop_duplicates(subset=["collision_id"], keep="first")
 
 print("✅ Governança, higienização profunda e volumetria espacial validadas com sucesso!")
 
@@ -236,7 +240,7 @@ with engine.begin() as conn:
     conn.execute(text(create_table_query))
     conn.execute(text(create_dlq_table_query))
 
-# 3. Gravação Física dos Dados Rejeitados na DLQ (Se houver reações)
+# 3. Gravação Física dos Dados Rejeitados na DLQ (Se houver rejeições)
 if not df_rejections.empty:
     print(f"📉 Despejando {len(df_rejections):,} registros corrompidos na tabela de DLQ...")
     df_rejections.to_sql(
@@ -250,74 +254,74 @@ else:
     print("🎉 Excelente: Nenhum registro foi rejeitado nesta carga.")
 
 # 4. Carga Volátil na Camada de Staging
-cols_to_drop = ["raw_crash_date", "raw_crash_time", "raw_latitude", "raw_longitude"]
-df_staging = df_silver.drop(columns=cols_to_drop, errors="ignore")
+if not df_silver.empty:
+    cols_to_drop = ["raw_crash_date", "raw_crash_time", "raw_latitude", "raw_longitude"]
+    df_staging = df_silver.drop(columns=cols_to_drop, errors="ignore")
 
-print("⏳ Despejando dados higienizados na tabela de Staging...")
-df_staging.to_sql(
-    name="stg_nyc_cleaned_tmp",
-    con=engine,
-    if_exists="replace",
-    index=False,
-    chunksize=20000
-)
+    print("⏳ Despejando dados higienizados na tabela de Staging...")
+    df_staging.to_sql(
+        name="stg_nyc_cleaned_tmp",
+        con=engine,
+        if_exists="replace",
+        index=False,
+        chunksize=20000
+    )
 
-# 5. Definição do Upsert Atômico Completo
-upsert_query = """
-INSERT INTO nycdata_vehicle_collisions_cleaned (
-    collision_id, crash_timestamp, crash_year, crash_month, crash_day_of_week, time_bucket,
-    borough, zip_code, latitude, longitude, location_text, on_street_name, off_street_name, cross_street_name,
-    total_persons_injured, total_persons_killed, pedestrians_injured, pedestrians_killed,
-    cyclists_injured, cyclists_killed, motorists_injured, motorists_killed,
-    contributing_factor_vehicle_1, contributing_factor_vehicle_2, contributing_factor_vehicle_3, contributing_factor_vehicle_4, contributing_factor_vehicle_5,
-    vehicle_type_code_1, vehicle_type_code_2, vehicle_type_code_3, vehicle_type_code_4, vehicle_type_code_5,
-    silver_processed_at, pipeline_version, geom
-)
-SELECT 
-    collision_id, crash_timestamp, crash_year, crash_month, crash_day_of_week, time_bucket,
-    borough, zip_code, latitude, longitude, location_text, on_street_name, off_street_name, cross_street_name,
-    total_persons_injured, total_persons_killed, pedestrians_injured, pedestrians_killed,
-    cyclists_injured, cyclists_killed, motorists_injured, motorists_killed,
-    contributing_factor_vehicle_1, contributing_factor_vehicle_2, contributing_factor_vehicle_3, contributing_factor_vehicle_4, contributing_factor_vehicle_5,
-    vehicle_type_code_1, vehicle_type_code_2, vehicle_type_code_3, vehicle_type_code_4, vehicle_type_code_5,
-    silver_processed_at, pipeline_version,
-    CASE 
-        WHEN geom_wkt IS NOT NULL THEN ST_GeomFromText(geom_wkt, 4326)
-        ELSE NULL 
-    END AS geom
-FROM stg_nyc_cleaned_tmp
-ON CONFLICT (collision_id) DO UPDATE SET
-    crash_timestamp = EXCLUDED.crash_timestamp,
-    time_bucket = EXCLUDED.time_bucket,
-    total_persons_injured = EXCLUDED.total_persons_injured,
-    total_persons_killed = EXCLUDED.total_persons_killed,
-    silver_processed_at = EXCLUDED.silver_processed_at,
-    geom = EXCLUDED.geom;
-"""
+    # 5. Definição do Upsert Atômico Completo
+    upsert_query = """
+    INSERT INTO nycdata_vehicle_collisions_cleaned (
+        collision_id, crash_timestamp, crash_year, crash_month, crash_day_of_week, time_bucket,
+        borough, zip_code, latitude, longitude, location_text, on_street_name, off_street_name, cross_street_name,
+        total_persons_injured, total_persons_killed, pedestrians_injured, pedestrians_killed,
+        cyclists_injured, cyclists_killed, motorists_injured, motorists_killed,
+        contributing_factor_vehicle_1, contributing_factor_vehicle_2, contributing_factor_vehicle_3, contributing_factor_vehicle_4, contributing_factor_vehicle_5,
+        vehicle_type_code_1, vehicle_type_code_2, vehicle_type_code_3, vehicle_type_code_4, vehicle_type_code_5,
+        silver_processed_at, pipeline_version, geom
+    )
+    SELECT 
+        collision_id, crash_timestamp, crash_year, crash_month, crash_day_of_week, time_bucket,
+        borough, zip_code, latitude, longitude, location_text, on_street_name, off_street_name, cross_street_name,
+        total_persons_injured, total_persons_killed, pedestrians_injured, pedestrians_killed,
+        cyclists_injured, cyclists_killed, motorists_injured, motorists_killed,
+        contributing_factor_vehicle_1, contributing_factor_vehicle_2, contributing_factor_vehicle_3, contributing_factor_vehicle_4, contributing_factor_vehicle_5,
+        vehicle_type_code_1, vehicle_type_code_2, vehicle_type_code_3, vehicle_type_code_4, vehicle_type_code_5,
+        silver_processed_at, pipeline_version,
+        CASE 
+            WHEN geom_wkt IS NOT NULL THEN ST_GeomFromText(geom_wkt, 4326)
+            ELSE NULL 
+        END AS geom
+    FROM stg_nyc_cleaned_tmp
+    ON CONFLICT (collision_id) DO UPDATE SET
+        crash_timestamp = EXCLUDED.crash_timestamp,
+        time_bucket = EXCLUDED.time_bucket,
+        total_persons_injured = EXCLUDED.total_persons_injured,
+        total_persons_killed = EXCLUDED.total_persons_killed,
+        silver_processed_at = EXCLUDED.silver_processed_at,
+        geom = EXCLUDED.geom;
+    """
 
-index_queries = [
-    "CREATE INDEX IF NOT EXISTS idx_nyc_cleaned_timestamp ON nycdata_vehicle_collisions_cleaned(crash_timestamp);",
-    "CREATE INDEX IF NOT EXISTS idx_nyc_cleaned_year_month ON nycdata_vehicle_collisions_cleaned(crash_year, crash_month);",
-    "CREATE INDEX IF NOT EXISTS idx_nyc_cleaned_spatial_gist ON nycdata_vehicle_collisions_cleaned USING GIST(geom);"
-]
+    index_queries = [
+        "CREATE INDEX IF NOT EXISTS idx_nyc_cleaned_timestamp ON nycdata_vehicle_collisions_cleaned(crash_timestamp);",
+        "CREATE INDEX IF NOT EXISTS idx_nyc_cleaned_year_month ON nycdata_vehicle_collisions_cleaned(crash_year, crash_month);",
+        "CREATE INDEX IF NOT EXISTS idx_nyc_cleaned_spatial_gist ON nycdata_vehicle_collisions_cleaned USING GIST(geom);"
+    ]
 
-with engine.begin() as conn:
-    print("🔄 Executando Upsert Atômico e traduzindo geometrias para o PostGIS...")
-    conn.execute(text(upsert_query))
-    
-    print("⚡ Construindo índices estruturais B-Tree e índices espaciais GiST...")
-    for idx_q in index_queries:
-        conn.execute(text(idx_q))
+    with engine.begin() as conn:
+        print("🔄 Executando Upsert Atômico e traduzindo geometrias para o PostGIS...")
+        conn.execute(text(upsert_query))
         
-    print("🧹 Limpando resquícios da camada de Staging...")
-    conn.execute(text("DROP TABLE IF EXISTS stg_nyc_cleaned_tmp;"))
+        print("⚡ Construindo índices estruturais B-Tree e índices espaciais GiST...")
+        for idx_q in index_queries:
+            conn.execute(text(idx_q))
+            
+        print("🧹 Limpando resquícios da camada de Staging...")
+        conn.execute(text("DROP TABLE IF EXISTS stg_nyc_cleaned_tmp;"))
 
 print("\n🏆 [SUCESSO ABSOLUTO] A Camada Silver e a DLQ foram completamente consolidadas e indexadas!")
 
 # ==============================================================================
 # ESTÁGIO DE AUDITORIA: MANIFESTO DE ESTADO PARA O DVC (PONTE DE GOVERNANÇA)
 # ==============================================================================
-import json
 
 print("\n📝 Gerando o Manifesto de Estado da Camada Silver para o DVC...")
 
