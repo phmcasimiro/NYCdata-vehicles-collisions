@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NYC Collisions Analytics — Data Engineering Portfolio</title>
+  <meta name="description" content="End-to-end data engineering pipeline processing 2.26M+ traffic accident records across New York City. Built with Python, PostgreSQL/PostGIS, Dash/Plotly, Docker, and DVC.">
+  <meta name="author" content="Pedro Casimiro">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="NYC Collisions Analytics — Data Engineering Portfolio">
+  <meta property="og:description" content="End-to-end Medallion architecture pipeline with interactive geospatial dashboard analyzing 13+ years of NYC traffic collisions.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/images/dashboard-screenshot.png">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- ====================================================================
+       NAVIGATION BAR (Sticky)
+       ==================================================================== -->
+  <nav class="navbar" id="navbar">
+    <div class="container">
+      <a href="#hero" class="navbar__brand">NYC <span>Collisions</span> Analytics</a>
+
+      <div class="navbar__links" id="nav-links">
+        <a href="#about" class="navbar__link" data-section="about">Overview</a>
+        <a href="#architecture" class="navbar__link" data-section="architecture">Architecture</a>
+        <a href="#dashboard" class="navbar__link" data-section="dashboard">Dashboard</a>
+        <a href="#techstack" class="navbar__link" data-section="techstack">Tech Stack</a>
+        <a href="#dashboard" class="navbar__cta">
+          View Dashboard
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+        </a>
+      </div>
+
+      <button class="navbar__hamburger" id="hamburger" aria-label="Toggle navigation menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+
+    <!-- Mobile menu -->
+    <div class="navbar__mobile-menu" id="mobile-menu">
+      <a href="#about" data-section="about">Overview</a>
+      <a href="#architecture" data-section="architecture">Architecture</a>
+      <a href="#dashboard" data-section="dashboard">Dashboard</a>
+      <a href="#techstack" data-section="techstack">Tech Stack</a>
+    </div>
+  </nav>
+
+  <!-- ====================================================================
+       HERO SECTION
+       ==================================================================== -->
+  <section class="hero section-dark" id="hero">
+    <!-- Network mesh background (canvas) -->
+    <canvas class="hero__network" id="hero-network"></canvas>
+
+    <div class="container">
+      <!-- Left: Content -->
+      <div class="hero__content">
+        <div class="hero__badge">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Data Engineering Portfolio
+        </div>
+
+        <h1 class="hero__title">
+          NYC Motor Vehicle<br><span>Collisions Analytics</span>
+        </h1>
+
+        <p class="hero__subtitle">
+          End-to-end data engineering pipeline built on the Medallion Architecture, processing over 2.26 million accident records across all five boroughs of New York City.
+        </p>
+
+        <a href="#dashboard" class="hero__cta">
+          Explore Dashboard
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+        </a>
+
+        <div class="hero__kpis">
+          <div class="hero__kpi">
+            <span class="hero__kpi-value" data-target="2264789" data-suffix="">0</span>
+            <span class="hero__kpi-label">Records Processed</span>
+          </div>
+          <div class="hero__kpi">
+            <span class="hero__kpi-value" data-target="13" data-suffix="+">0</span>
+            <span class="hero__kpi-label">Years of Data</span>
+          </div>
+          <div class="hero__kpi">
+            <span class="hero__kpi-value" data-target="5" data-suffix="">0</span>
+            <span class="hero__kpi-label">NYC Boroughs</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Dashboard mockup -->
+      <div class="hero__visual">
+        <div class="hero__glow"></div>
+        <img
+          src="assets/images/dashboard-screenshot.png"
+          alt="NYC Collisions Analytics Dashboard showing choropleth map, temporal analysis, and top contributing factors"
+          class="hero__mockup"
+          loading="eager"
+        >
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================================================================
+       ABOUT SECTION (White Background)
+       ==================================================================== -->
+  <section class="about section-light" id="about">
+    <div class="container">
+      <div class="about__header reveal">
+        <h2 class="about__title">A Complete Data Engineering Portfolio</h2>
+        <p class="about__subtitle">
+          Built as a real-world demonstration of end-to-end pipeline engineering, this project ingests, validates, transforms, and visualizes 2.26 million traffic accident records from New York City's Open Data portal.
+        </p>
+      </div>
+
+      <div class="about__grid">
+        <!-- Card 1: Solutions Architecture -->
+        <div class="about__card reveal reveal-delay-1">
+          <svg class="about__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="3" y="14" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/>
+          </svg>
+          <h3 class="about__card-title">Solutions Architecture</h3>
+          <p class="about__card-text">Medallion architecture (Bronze → Silver → Gold), Docker containerization, DVC orchestration with DAG pipelines, and pg_cron scheduling for automated materialized view refreshes.</p>
+        </div>
+
+        <!-- Card 2: Data Engineering -->
+        <div class="about__card reveal reveal-delay-2">
+          <svg class="about__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+          </svg>
+          <h3 class="about__card-title">Data Engineering</h3>
+          <p class="about__card-text">Incremental ingestion via SODA API in 50K batches, batch chunking engine (100K rows), atomic upsert with ON CONFLICT, and resilient dual-engine fallback (PyArrow → C engine).</p>
+        </div>
+
+        <!-- Card 3: Spatial Intelligence -->
+        <div class="about__card reveal reveal-delay-3">
+          <svg class="about__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="10" r="3"/>
+            <path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7z"/>
+          </svg>
+          <h3 class="about__card-title">Spatial Intelligence</h3>
+          <p class="about__card-text">PostGIS geometry indexing with GiST spatial trees, OGC WKT coordinate conversion (SRID 4326), NYC bounding box validation filtering 11% of spurious GPS data.</p>
+        </div>
+
+        <!-- Card 4: Analytics & BI -->
+        <div class="about__card reveal reveal-delay-4">
+          <svg class="about__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 3v18h18"/>
+            <path d="m19 9-5 5-4-4-3 3"/>
+          </svg>
+          <h3 class="about__card-title">Analytics &amp; Visualization</h3>
+          <p class="about__card-text">Materialized views delivering sub-millisecond queries, Dash/Plotly reactive dashboard with cross-filtering, 12-month moving average trend lines, and choropleth mapping.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================================================================
+       ARCHITECTURE SECTION (Dark Background — Tabs + Split Layout)
+       ==================================================================== -->
+  <section class="architecture section-dark" id="architecture">
+    <div class="container">
+      <div class="architecture__header reveal">
+        <h2 class="architecture__title">The Medallion Pipeline Architecture</h2>
+        <p class="architecture__subtitle">From raw API ingestion to sub-millisecond analytics — each layer adds quality, governance, and performance.</p>
+      </div>
+
+      <!-- Tab Navigation -->
+      <div class="architecture__tabs reveal">
+        <button class="architecture__tab active" data-tab="bronze">
+          <span class="architecture__tab-icon">🥉</span>
+          Bronze Layer
+        </button>
+        <button class="architecture__tab" data-tab="silver">
+          <span class="architecture__tab-icon">🥈</span>
+          Silver Layer
+        </button>
+        <button class="architecture__tab" data-tab="gold">
+          <span class="architecture__tab-icon">🥇</span>
+          Gold Layer
+        </button>
+      </div>
+
+      <!-- Tab Content: Bronze -->
+      <div class="architecture__content active" id="tab-bronze">
+        <div class="architecture__visual">
+          <div class="architecture__diagram"><span class="dim"># Pipeline Flow — Bronze Layer</span>
+
+<span class="highlight">[NYC Open Data API]</span>
+        │
+        ▼  <span class="dim">SODA 2 — Batches of 50,000</span>
+<span class="highlight">[PyArrow Engine]</span> ──fallback──▶ <span class="highlight">[C Engine]</span>
+        │
+        ▼  <span class="dim">dtype mapping + pd.to_datetime</span>
+<span class="highlight">[Staging Table]</span> ─── stg_nyc_collisions_tmp
+        │
+        ▼  <span class="dim">INSERT ... ON CONFLICT DO NOTHING</span>
+<span class="highlight">[RAW Table]</span> ─── nycdata_vehicle_collisions_raw
+        │
+        ▼
+<span class="highlight">[bronze_status.json]</span> ──▶ DVC Cache</div>
+        </div>
+        <div class="architecture__info">
+          <h3 class="architecture__layer-title">Bronze Layer — Raw Ingestion</h3>
+          <p class="architecture__layer-desc">The entry point of the pipeline. Performs hybrid ingestion (historical + incremental) from NYC Open Data's SODA API with built-in resilience and idempotency guarantees.</p>
+          <div class="architecture__metrics">
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>2.26M</strong> records ingested via paginated API calls</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>Retry</strong> with exponential backoff (3 attempts: 5s, 10s, 15s)</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>Dual engine</strong> fallback — PyArrow to C engine on parse errors</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>Atomic upsert</strong> via staging table + ON CONFLICT DO NOTHING</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Content: Silver -->
+      <div class="architecture__content" id="tab-silver">
+        <div class="architecture__visual">
+          <div class="architecture__diagram"><span class="dim"># Pipeline Flow — Silver Layer</span>
+
+<span class="highlight">[RAW Table (Bronze)]</span>
+        │
+        ▼  <span class="dim">Batch chunks of 100,000 rows</span>
+<span class="highlight">[Pydantic Contract]</span> ── schemas.py (BaseModel)
+        │
+   ┌────┴────┐
+   ▼         ▼
+<span class="highlight">[Valid]</span>    <span class="dim">[Invalid → DLQ]</span>
+   │         <span class="dim">nycdata_vehicle_collisions_rejections</span>
+   ▼
+<span class="highlight">[Feature Engineering]</span>
+   │  <span class="dim">UTC timestamps, PostGIS WKT, BBox mask</span>
+   ▼
+<span class="highlight">[Staging]</span> ──▶ <span class="highlight">[Cleaned Table]</span>
+   <span class="dim">INSERT ... ON CONFLICT DO UPDATE</span>
+        │
+        ▼
+<span class="highlight">[silver_status.json]</span> ──▶ DVC Metrics</div>
+        </div>
+        <div class="architecture__info">
+          <h3 class="architecture__layer-title">Silver Layer — Cleaning &amp; Contracts</h3>
+          <p class="architecture__layer-desc">Consolidates data quality and governance. Applies Pydantic data contracts, spatial enrichment via PostGIS, and timezone normalization to UTC — all processed in memory-efficient chunks.</p>
+          <div class="architecture__metrics">
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>99.8%</strong> approval rate — only 4,841 of 2.26M rejected</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>Pydantic</strong> BaseModel enforcing types, ranges, and business rules</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>Bounding box</strong> filtering 11% spurious GPS coordinates to NULL</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>Dead Letter Queue</strong> preserving rejected payloads for audit</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Content: Gold -->
+      <div class="architecture__content" id="tab-gold">
+        <div class="architecture__visual">
+          <div class="architecture__diagram"><span class="dim"># Pipeline Flow — Gold Layer</span>
+
+<span class="highlight">[Cleaned Table (Silver)]</span>
+        │
+        ▼  <span class="dim">Query Pushdown — SQL aggregation</span>
+   ┌────┴────────────────────┐
+   ▼                         ▼
+<span class="highlight">[MV: Fact Temporal]</span>     <span class="highlight">[MV: Contributing Factors]</span>
+   <span class="dim">year, month, borough</span>     <span class="dim">UNION ALL of 5 vehicle columns</span>
+   <span class="dim">collisions, fatalities</span>   <span class="dim">Excludes UNSPECIFIED/UNKNOWN</span>
+   │                         │
+   ▼                         ▼
+<span class="highlight">[pg_cron: 02:00 AM]</span>     <span class="highlight">[pg_cron: 02:05 AM]</span>
+   <span class="dim">REFRESH CONCURRENTLY</span>     <span class="dim">REFRESH CONCURRENTLY</span>
+        │
+        ▼
+<span class="highlight">[Dash/Plotly Dashboard]</span>
+   <span class="dim">Sub-millisecond reactive queries</span></div>
+        </div>
+        <div class="architecture__info">
+          <h3 class="architecture__layer-title">Gold Layer — Analytics &amp; Presentation</h3>
+          <p class="architecture__layer-desc">The final layer reduces 2.26M rows to under 1,000 pre-aggregated records using materialized views. Daily refresh is orchestrated by pg_cron directly inside the database container.</p>
+          <div class="architecture__metrics">
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>&lt;1ms</strong> query latency via pre-aggregated materialized views</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>CONCURRENT</strong> refresh — zero downtime during recalculation</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>pg_cron</strong> autonomous scheduling at 02:00 AM daily</span>
+            </div>
+            <div class="architecture__metric">
+              <span class="architecture__metric-dot"></span>
+              <span><strong>B-Tree + GiST</strong> composite indexes for analytical filtering</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================================================================
+       DASHBOARD SECTION (Dark Background — Iframe Showcase)
+       ==================================================================== -->
+  <section class="dashboard section-dark" id="dashboard">
+    <div class="container">
+      <div class="dashboard__header reveal">
+        <h2 class="dashboard__title">Interactive Dashboard — Live Analytics</h2>
+        <p class="dashboard__subtitle">Explore collision data across all five boroughs with cross-filtering, temporal trends, and geospatial density mapping powered by the Gold layer.</p>
+      </div>
+
+      <div class="dashboard__container reveal">
+        <!-- Loading state -->
+        <div class="dashboard__loading" id="dash-loading">
+          <div class="dashboard__loading-spinner"></div>
+          <span class="dashboard__loading-text">Connecting to dashboard server...</span>
+        </div>
+
+        <!-- Iframe -->
+        <iframe
+          id="dash-iframe"
+          class="dashboard__iframe"
+          src=""
+          title="NYC Collisions Interactive Dashboard"
+          loading="lazy"
+          allow="fullscreen"
+        ></iframe>
+
+        <!-- Fallback (screenshot + overlay) -->
+        <div class="dashboard__fallback" id="dash-fallback">
+          <img src="assets/images/dashboard-screenshot.png" alt="NYC Collisions Dashboard Preview">
+          <div class="dashboard__fallback-overlay">
+            <svg class="dashboard__fallback-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M8 21h8"/><path d="M12 17v4"/>
+              <path d="m10 9 4 2-4 2V9z"/>
+            </svg>
+            <p class="dashboard__fallback-text">Dashboard Preview</p>
+            <p class="dashboard__fallback-hint">The live interactive dashboard requires the Dash server to be running. Start it locally with <code>python NYCdata/scripts/3_nycdata_gold_dash.py</code></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================================================================
+       TECH STACK SECTION (White Background)
+       ==================================================================== -->
+  <section class="techstack section-light" id="techstack">
+    <div class="container">
+      <div class="techstack__header reveal">
+        <h2 class="techstack__title">Built With Industry Standards</h2>
+        <p class="techstack__subtitle">Every technology in this stack was chosen to mirror real-world enterprise data engineering environments.</p>
+      </div>
+
+      <div class="techstack__grid">
+        <!-- Python -->
+        <div class="techstack__card reveal reveal-delay-1">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2C6.48 2 2 4.02 2 6.5V10c0 2.48 4.48 4.5 10 4.5S22 12.48 22 10V6.5C22 4.02 17.52 2 12 2z"/>
+            <path d="M2 10v4c0 2.48 4.48 4.5 10 4.5S22 16.48 22 14V10"/>
+            <path d="M2 14v4c0 2.48 4.48 4.5 10 4.5S22 20.48 22 18V14"/>
+          </svg>
+          <span class="techstack__card-name">Python</span>
+          <span class="techstack__card-role">Pipeline Core &amp; Data Processing</span>
+        </div>
+
+        <!-- PostgreSQL + PostGIS -->
+        <div class="techstack__card reveal reveal-delay-2">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5"/>
+            <path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/>
+          </svg>
+          <span class="techstack__card-name">PostgreSQL + PostGIS</span>
+          <span class="techstack__card-role">Spatial Database &amp; Analytics</span>
+        </div>
+
+        <!-- Docker -->
+        <div class="techstack__card reveal reveal-delay-3">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="1" y="10" width="4" height="4"/>
+            <rect x="6" y="10" width="4" height="4"/>
+            <rect x="11" y="10" width="4" height="4"/>
+            <rect x="16" y="10" width="4" height="4"/>
+            <rect x="6" y="5" width="4" height="4"/>
+            <rect x="11" y="5" width="4" height="4"/>
+            <rect x="11" y="0" width="4" height="4"/>
+          </svg>
+          <span class="techstack__card-name">Docker</span>
+          <span class="techstack__card-role">Container Infrastructure</span>
+        </div>
+
+        <!-- DVC -->
+        <div class="techstack__card reveal reveal-delay-4">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/>
+            <path d="M6 21V9a9 9 0 0 0 9 9"/>
+          </svg>
+          <span class="techstack__card-name">DVC</span>
+          <span class="techstack__card-role">Pipeline Orchestration &amp; Versioning</span>
+        </div>
+
+        <!-- Dash / Plotly -->
+        <div class="techstack__card reveal reveal-delay-1">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>
+            <path d="M22 12A10 10 0 0 0 12 2v10z"/>
+          </svg>
+          <span class="techstack__card-name">Dash / Plotly</span>
+          <span class="techstack__card-role">Reactive Dashboard &amp; Visualization</span>
+        </div>
+
+        <!-- Pydantic -->
+        <div class="techstack__card reveal reveal-delay-2">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+          <span class="techstack__card-name">Pydantic</span>
+          <span class="techstack__card-role">Data Contract Enforcement</span>
+        </div>
+
+        <!-- SQLAlchemy -->
+        <div class="techstack__card reveal reveal-delay-3">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 18 22 12 16 6"/>
+            <polyline points="8 6 2 12 8 18"/>
+            <line x1="14" y1="4" x2="10" y2="20"/>
+          </svg>
+          <span class="techstack__card-name">SQLAlchemy</span>
+          <span class="techstack__card-role">ORM &amp; Query Engine</span>
+        </div>
+
+        <!-- Pandas -->
+        <div class="techstack__card reveal reveal-delay-4">
+          <svg class="techstack__card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M3 9h18"/><path d="M3 15h18"/>
+            <path d="M9 3v18"/><path d="M15 3v18"/>
+          </svg>
+          <span class="techstack__card-name">Pandas</span>
+          <span class="techstack__card-role">Data Wrangling &amp; Transformation</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================================================================
+       FOOTER
+       ==================================================================== -->
+  <footer class="footer" id="footer">
+    <div class="container">
+      <div class="footer__top">
+        <div class="footer__brand">
+          <div class="footer__brand-name">NYC <span>Collisions</span> Analytics</div>
+          <p class="footer__brand-desc">A data engineering portfolio project demonstrating end-to-end pipeline design, spatial analysis, and interactive visualization.</p>
+        </div>
+
+        <div class="footer__social">
+          <span class="footer__social-title">Connect</span>
+          <div class="footer__social-links">
+            <!-- LinkedIn -->
+            <a href="https://www.linkedin.com/in/phmcasimiro/" target="_blank" rel="noopener noreferrer" class="footer__social-link" aria-label="LinkedIn Profile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/>
+                <rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/>
+              </svg>
+            </a>
+            <!-- GitHub -->
+            <a href="https://github.com/phmcasimiro" target="_blank" rel="noopener noreferrer" class="footer__social-link" aria-label="GitHub Profile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+              </svg>
+            </a>
+            <!-- Email -->
+            <a href="mailto:phmcasimiro@gmail.com" class="footer__social-link" aria-label="Email Contact">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="2"/>
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+              </svg>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer__divider"></div>
+
+      <div class="footer__bottom">
+        <span>&copy; 2025 Pedro Casimiro. All rights reserved.</span>
+        <span>Data sourced from <a href="https://data.cityofnewyork.us/Public-Safety/Motor-Vehicle-Collisions-Crashes/h9gi-nx95/about_data" target="_blank" rel="noopener noreferrer">NYC Open Data</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="js/main.js"></script>
+</body>
+</html>
