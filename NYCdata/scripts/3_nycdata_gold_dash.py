@@ -101,7 +101,7 @@ app.layout = html.Div(
                         html.Img(
                             src="/assets/nyc_opendata.png", 
                             style={
-                                "height": "45px", 
+                                "height": "35px", 
                                 "width": "auto",
                                 "display": "block"
                             }
