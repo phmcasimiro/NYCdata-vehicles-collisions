@@ -25,3 +25,7 @@ plotly>=5.22.0
 # AUTOMAÇÃO DE INTERFACE (GUI) & AUXILIARES
 # ==============================================================================
 pyautogui>=0.9.54
+
+# WSGI Server e Caching (Produção)
+waitress>=3.0.0
+Flask-Caching>=2.1.0

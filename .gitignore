@@ -24,3 +24,11 @@ __pycache__/
 *$*
 .pytest_cache/
 .ipynb_checkpoints/
+
+# === Caches do Dashboard (Flask-Caching) ===
+NYCdata/cache/
+
+# === Logs de Execução ===
+*.log
+NYCdata/metadata/pipeline.log
+

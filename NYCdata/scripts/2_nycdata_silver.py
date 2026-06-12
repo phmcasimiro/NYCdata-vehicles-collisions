@@ -3,10 +3,22 @@ import os
 import sys
 import urllib.parse
 import json
+import logging
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import pandas as pd
 from schemas import MAP_BRONZE_TO_SILVER, CollisionSilverSchema
+
+# Configuração de Logging Estruturado
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler("NYCdata/metadata/pipeline.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("GeoDevSilver")
 
 # 1. Carrega as variáveis de ambiente
 load_dotenv()
@@ -18,7 +30,7 @@ DB_PORT = os.getenv("DB_PORT")
 DB_NAME = os.getenv("DB_NAME")
 
 if not all([DB_USER, DB_PASS, DB_HOST, DB_PORT, DB_NAME]):
-    print("❌ Erro: Variáveis de ambiente de conexão não encontradas no .env")
+    logger.error("❌ Erro: Variáveis de ambiente de conexão não encontradas no .env")
     sys.exit(1)
 
 # Realiza o URL Encoding da senha para blindar caracteres especiais
@@ -28,52 +40,52 @@ DATABASE_URL = f"postgresql://{DB_USER}:{senha_encriptada}@{DB_HOST}:{DB_PORT}/{
 # Cria a engine de conexão com o banco de dados Postgres (Docker)
 engine = create_engine(DATABASE_URL)
 
-print("⚡ Conexão com o banco de dados configurada com sucesso!")
-print(f"📋 Mapeamento de colunas carregado de 'schemas.py'. Total de colunas: {len(MAP_BRONZE_TO_SILVER)}")
+logger.info("⚡ Conexão com o banco de dados configurada com sucesso!")
+logger.info(f"📋 Mapeamento de colunas carregado de 'schemas.py'. Total de colunas: {len(MAP_BRONZE_TO_SILVER)}")
 
 # ==============================================================================
 # FASE 1: LEITURA DA BRONZE E HIGIENIZAÇÃO DE ESQUEMA (Renaming & Casting)
 # ==============================================================================
 
-print("\n📖 Iniciando a leitura dos dados da Camada Bronze...")
+logger.info("📖 Iniciando a leitura dos dados da Camada Bronze...")
 
 # Query para extrair os dados brutos da Bronze
 query_bronze = "SELECT * FROM nycdata_vehicle_collisions_raw;"
 
 # Lê a tabela inteira do Postgres para a memória do Python usando Pandas
 df_raw = pd.read_sql_query(query_bronze, con=engine)
-print(f"✅ Dados carregados com sucesso! Total de registros lidos: {len(df_raw):,}")
+logger.info(f"✅ Dados carregados com sucesso! Total de registros lidos: {len(df_raw):,}")
 
-print("\n🔄 Aplicando a renomeação uniforme para o padrão internacional (EUA/Canadá)...")
+logger.info("🔄 Aplicando a renomeação uniforme para o padrão internacional (EUA/Canadá)...")
 # Executa a renomeação das colunas usando o mapeamento importado do 'schemas.py'
 df_silver = df_raw.rename(columns=MAP_BRONZE_TO_SILVER)
 
-print("🧪 Executando a tipagem estrita (Casting) e tratamento preliminar...")
+logger.info("🧪 Executando a tipagem estrita (Casting) e tratamento preliminar...")
 
 # 1. Garantia do Código Postal (zip_code): Forçando tipo string limpa e tratando nulos
 df_silver["zip_code"] = df_silver["zip_code"].astype(str).str.strip()
 df_silver["zip_code"] = df_silver["zip_code"].replace({"nan": "UNKNOWN", "": "UNKNOWN"})
 
-print("✅ Fase 1 concluída com sucesso absoluto!")
+logger.info("✅ Fase 1 concluída com sucesso absoluto!")
 
 # ==============================================================================
 # FASE 2: ENGENHARIA DE ATRIBUTOS TEMPORAIS E FUSOS (Feature Engineering)
 # ==============================================================================
 
-print("\n📅 Iniciando a Fase 2: Unificação de Data/Hora e Padronização de Fusos...")
+logger.info("📅 Iniciando a Fase 2: Unificação de Data/Hora e Padronização de Fusos...")
 
 # 1. Combinar Data e Hora brutas em uma única string tratada
 df_silver["timestamp_concat"] = (
     df_silver["raw_crash_date"].astype(str).str.slice(0, 10) + " " + df_silver["raw_crash_time"].astype(str).str.strip()
 )
 
-print("🌍 Aplicando a conversão de Timezone para UTC universal...")
+logger.info("🌍 Aplicando a conversão de Timezone para UTC universal...")
 df_datetime = pd.to_datetime(df_silver["timestamp_concat"], errors="coerce")
 
 # Atribuímos o fuso horário original de Nova York (tz_localize) e convertemos para UTC (tz_convert)
 df_silver["crash_timestamp"] = df_datetime.dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC")
 
-print("✂️ Extraindo colunas analíticas derivadas para o Dashboard...")
+logger.info("✂️ Extraindo colunas analíticas derivadas para o Dashboard...")
 df_silver["crash_year"] = df_silver["crash_timestamp"].dt.year
 df_silver["crash_month"] = df_silver["crash_timestamp"].dt.month
 df_silver["crash_day_of_week"] = df_silver["crash_timestamp"].dt.dayofweek 
@@ -90,13 +102,13 @@ df_silver["time_bucket"] = pd.cut(
 # Removemos a coluna temporária de concatenação
 df_silver = df_silver.drop(columns=["timestamp_concat"])
 
-print("✅ Fase 2 concluída! Atributos temporais gerados com sucesso.")
+logger.info("✅ Fase 2 concluída! Atributos temporais gerados com sucesso.")
 
 # ==============================================================================
 # FASES 3, 4, 5 & GOVERNANÇA: CONTRATO DE DADOS E VALIDAÇÃO ESTRITA (Pydantic + DLQ)
 # ==============================================================================
 
-print("\n🛡️ Iniciando a validação em lote do Contrato de Dados (Pydantic + Chunking + Bounding Box)...")
+logger.info("🛡️ Iniciando a validação em lote do Contrato de Dados (Pydantic + Chunking + Bounding Box)...")
 
 # 1. Alinhamento inicial de coordenadas geográficas
 df_silver["latitude"] = pd.to_numeric(df_silver["raw_latitude"], errors="coerce")
@@ -113,7 +125,7 @@ errors_count = 0
 LON_MIN, LON_MAX = -74.259, -73.700
 LAT_MIN, LAT_MAX = 40.477, 40.917
 
-print(f"🧪 Submetendo {total_linhas:,} registros ao crivo do CollisionSilverSchema em blocos de {CHUNK_SIZE:,}...")
+logger.info(f"🧪 Submetendo {total_linhas:,} registros ao crivo do CollisionSilverSchema em blocos de {CHUNK_SIZE:,}...")
 
 for i in range(0, total_linhas, CHUNK_SIZE):
     # Extrai o pedaço isolado de linhas para processamento
@@ -145,7 +157,7 @@ for i in range(0, total_linhas, CHUNK_SIZE):
         except Exception as e:
             errors_count += 1
             if errors_count <= 5:
-                print(f"⚠️ Registro rejeitado pelo contrato: ID {record.get('collision_id')} - Erro: {e}")
+                logger.warning(f"⚠️ Registro rejeitado pelo contrato: ID {record.get('collision_id')} - Erro: {e}")
             
             # Captura e preserva a linhagem da falha sem quebrar o laço (DLQ)
             rejections_list.append({
@@ -156,9 +168,9 @@ for i in range(0, total_linhas, CHUNK_SIZE):
                 "raw_payload": str(record)  # Serializa o dicionário problemático como string TEXT
             })
 
-print(f"📊 Relatório de Auditoria de Qualidade Pydantic:")
-print(f"   ✅ Registros em conformidade total com o contrato: {len(validated_records):,}")
-print(f"   ❌ Registros corrompidos/enviados para a DLQ: {errors_count:,}")
+logger.info("📊 Relatório de Auditoria de Qualidade Pydantic:")
+logger.info(f"   ✅ Registros em conformidade total com o contrato: {len(validated_records):,}")
+logger.info(f"   ❌ Registros corrompidos/enviados para a DLQ: {errors_count:,}")
 
 # 3. Reconstrói o DataFrame principal e injeta de forma vetorizada os metadados de auditoria
 df_silver = pd.DataFrame(validated_records)
@@ -169,18 +181,18 @@ if not df_silver.empty:
 df_rejections = pd.DataFrame(rejections_list)  # Criação do DataFrame de erros
 
 # 4. Deduplicação Fina Analítica por Chave Primária
-print("🆔 Executando a deduplicação analítica fina por 'collision_id'...")
+logger.info("🆔 Executando a deduplicação analítica fina por 'collision_id'...")
 if not df_silver.empty:
     df_silver = df_silver.sort_values(by=["collision_id", "crash_timestamp"], ascending=[True, False])
     df_silver = df_silver.drop_duplicates(subset=["collision_id"], keep="first")
 
-print("✅ Governança, higienização profunda e volumetria espacial validadas com sucesso!")
+logger.info("✅ Governança, higienização profunda e volumetria espacial validadas com sucesso!")
 
 # ==============================================================================
 # FASE 6: CARREGAMENTO FÍSICO E CONVERSÃO POSTGIS (Load, Upsert & Indexing)
 # ==============================================================================
 
-print("\n🚀 Iniciando a Fase 6: Gravação, Gravação da DLQ e Conversão Espacial no Postgres...")
+logger.info("🚀 Iniciando a Fase 6: Gravação, Gravação da DLQ e Conversão Espacial no Postgres...")
 
 # 1. DDL Completa da Tabela Definitiva Limpa (Silver)
 create_table_query = """
@@ -236,13 +248,13 @@ CREATE TABLE IF NOT EXISTS nycdata_vehicle_collisions_rejections (
 """
 
 with engine.begin() as conn:
-    print("🏗️ Garantindo a existência das estruturas das tabelas definitiva e DLQ...")
+    logger.info("🏗️ Garantindo a existência das estruturas das tabelas definitiva e DLQ...")
     conn.execute(text(create_table_query))
     conn.execute(text(create_dlq_table_query))
 
 # 3. Gravação Física dos Dados Rejeitados na DLQ (Se houver rejeições)
 if not df_rejections.empty:
-    print(f"📉 Despejando {len(df_rejections):,} registros corrompidos na tabela de DLQ...")
+    logger.info(f"📉 Despejando {len(df_rejections):,} registros corrompidos na tabela de DLQ...")
     df_rejections.to_sql(
         name="nycdata_vehicle_collisions_rejections",
         con=engine,
@@ -251,14 +263,14 @@ if not df_rejections.empty:
         chunksize=10000
     )
 else:
-    print("🎉 Excelente: Nenhum registro foi rejeitado nesta carga.")
+    logger.info("🎉 Excelente: Nenhum registro foi rejeitado nesta carga.")
 
 # 4. Carga Volátil na Camada de Staging
 if not df_silver.empty:
     cols_to_drop = ["raw_crash_date", "raw_crash_time", "raw_latitude", "raw_longitude"]
     df_staging = df_silver.drop(columns=cols_to_drop, errors="ignore")
 
-    print("⏳ Despejando dados higienizados na tabela de Staging...")
+    logger.info("⏳ Despejando dados higienizados na tabela de Staging...")
     df_staging.to_sql(
         name="stg_nyc_cleaned_tmp",
         con=engine,
@@ -307,23 +319,23 @@ if not df_silver.empty:
     ]
 
     with engine.begin() as conn:
-        print("🔄 Executando Upsert Atômico e traduzindo geometrias para o PostGIS...")
+        logger.info("🔄 Executando Upsert Atômico e traduzindo geometrias para o PostGIS...")
         conn.execute(text(upsert_query))
         
-        print("⚡ Construindo índices estruturais B-Tree e índices espaciais GiST...")
+        logger.info("⚡ Construindo índices estruturais B-Tree e índices espaciais GiST...")
         for idx_q in index_queries:
             conn.execute(text(idx_q))
             
-        print("🧹 Limpando resquícios da camada de Staging...")
+        logger.info("🧹 Limpando resquícios da camada de Staging...")
         conn.execute(text("DROP TABLE IF EXISTS stg_nyc_cleaned_tmp;"))
 
-print("\n🏆 [SUCESSO ABSOLUTO] A Camada Silver e a DLQ foram completamente consolidadas e indexadas!")
+logger.info("🏆 [SUCESSO ABSOLUTO] A Camada Silver e a DLQ foram completamente consolidadas e indexadas!")
 
 # ==============================================================================
 # ESTÁGIO DE AUDITORIA: MANIFESTO DE ESTADO PARA O DVC (PONTE DE GOVERNANÇA)
 # ==============================================================================
 
-print("\n📝 Gerando o Manifesto de Estado da Camada Silver para o DVC...")
+logger.info("📝 Gerando o Manifesto de Estado da Camada Silver para o DVC...")
 
 metadata_dir = "NYCdata/metadata"
 os.makedirs(metadata_dir, exist_ok=True)
@@ -343,4 +355,4 @@ manifesto_path = os.path.join(metadata_dir, "silver_status.json")
 with open(manifesto_path, "w", encoding="utf-8") as f:
     json.dump(manifesto_silver, f, indent=4, ensure_ascii=False)
 
-print(f"💾 Manifesto de estado guardado com sucesso em: {manifesto_path}")
+logger.info(f"💾 Manifesto de estado guardado com sucesso em: {manifesto_path}")
