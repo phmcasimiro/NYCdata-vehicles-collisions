@@ -1,10 +1,22 @@
 import os
 import time
 from datetime import datetime
+import logging
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
+
+# Configuração de Logging Estruturado
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler("NYCdata/metadata/pipeline.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("GeoDevETL")
 
 # Carrega as variáveis contidas no arquivo .env para a memória
 load_dotenv()
@@ -59,7 +71,7 @@ def criar_constraints_se_nao_existirem(engine_banco, nome_tabela, df_modelo):
         tabela_existe = conexao.execute(text(query_tabela_existe)).scalar()
         
         if not tabela_existe:
-            print(f"🛠️ Tabela '{nome_tabela}' não encontrada. Criando estrutura baseada no schema da API...")
+            logger.info(f"🛠️ Tabela '{nome_tabela}' não encontrada. Criando estrutura baseada no schema da API...")
             df_modelo.head(0).to_sql(
                 name=nome_tabela,
                 con=engine_banco,
@@ -76,12 +88,12 @@ def criar_constraints_se_nao_existirem(engine_banco, nome_tabela, df_modelo):
         existe_idx = conexao.execute(text(query_verificar_constraint)).scalar()
         
         if existe_idx == 0:
-            print(f"🛠️ Aplicando restrição UNIQUE na coluna 'collision_id' da tabela '{nome_tabela}'...")
+            logger.info(f"🛠️ Aplicando restrição UNIQUE na coluna 'collision_id' da tabela '{nome_tabela}'...")
             try:
                 conexao.execute(text(f'ALTER TABLE "{nome_tabela}" ADD CONSTRAINT "{nome_tabela}_collision_id_key" UNIQUE (collision_id);'))
                 conexao.commit()
             except Exception as e:
-                print(f"⚠️ Nota ao aplicar a constraint: {e}")
+                logger.warning(f"⚠️ Nota ao aplicar a constraint: {e}")
 
 
 def obter_ponto_de_partida(engine_banco, nome_tabela):
@@ -103,15 +115,15 @@ def extrair_bloco_com_retry(url, bloco_num, max_retries=3):
             if retry_count == 0:
                 df = pd.read_csv(url, engine="pyarrow", dtype=dtype_mapeamento)
             else:
-                print(f"🔄 Aplicando estratégia de Fallback: Usando motor padrão com descarte de linhas malformadas...")
+                logger.info("🔄 Aplicando estratégia de Fallback: Usando motor padrão com descarte de linhas malformadas...")
                 df = pd.read_csv(url, engine="c", dtype=dtype_mapeamento, on_bad_lines="skip")
             return df
         except Exception as e:
             retry_count += 1
             wait_time = retry_count * 5  
-            print(f"⚠️ Falha observada no Bloco #{bloco_num} (Tentativa {retry_count}/{max_retries}): {e}")
+            logger.warning(f"⚠️ Falha observada no Bloco #{bloco_num} (Tentativa {retry_count}/{max_retries}): {e}")
             if retry_count < max_retries:
-                print(f"⏳ Aguardando {wait_time} segundos para tentar novamente...")
+                logger.info(f"⏳ Aguardando {wait_time} segundos para tentar novamente...")
                 time.sleep(wait_time)
             else:
                 raise RuntimeError(f"❌ Erro crítico: O bloco #{bloco_num} falhou persistentemente.")
@@ -140,39 +152,39 @@ def executar_pipeline(nome_tabela, engine_banco):
     bloco_num = (offset_atual // limite_bloco) + 1
     
     if offset_atual > 0:
-        print(f"🔄 Carga retomada de forma incremental. Registro atual de partida: {offset_atual} (Bloco #{bloco_num}).")
+        logger.info(f"🔄 Carga retomada de forma incremental. Registro atual de partida: {offset_atual} (Bloco #{bloco_num}).")
     else:
-        print("🆕 Tabela vazia ou inexistente detectada. Iniciando processamento completo do histórico...")
+        logger.info("🆕 Tabela vazia ou inexistente detectada. Iniciando processamento completo do histórico...")
 
     while True:
         url_pagina = f"{API_URL_BASE}?$limit={limite_bloco}&$offset={offset_atual}&$order=collision_id"
 
-        print(f"\n⌛ Processando Bloco #{bloco_num} (Offset de busca: {offset_atual})...")
+        logger.info(f"⌛ Processando Bloco #{bloco_num} (Offset de busca: {offset_atual})...")
         
         df_bloco = extrair_bloco_com_retry(url_pagina, bloco_num)
 
         if df_bloco.empty:
-            print(f"\n🏁 Sincronização concluída com sucesso! Todos os dados disponíveis foram processados.")
+            logger.info("🏁 Sincronização concluída com sucesso! Todos os dados disponíveis foram processados.")
             break
-
+ 
         # Limpeza e tipagem explícita do ID para evitar incompatibilidades
         if 'collision_id' in df_bloco.columns:
             df_bloco['collision_id'] = pd.to_numeric(df_bloco['collision_id'], errors='coerce')
             df_bloco = df_bloco.dropna(subset=['collision_id'])
             df_bloco['collision_id'] = df_bloco['collision_id'].astype('int64')
-
+ 
         # --- O PULO DO GATO DE TIPAGEM DE DATA ---
         # Força explicitamente a conversão para Datetime independente do motor de parse do CSV
         if 'crash_date' in df_bloco.columns:
             df_bloco['crash_date'] = pd.to_datetime(df_bloco['crash_date'], errors='coerce')
-
+ 
         if primeira_rodada:
             criar_constraints_se_nao_existirem(engine_banco, nome_tabela, df_bloco)
             primeira_rodada = False
-
+ 
         linhas_bloco = len(df_bloco)
         total_processado += linhas_bloco
-
+ 
         # Carga na tabela de Staging temporária
         df_bloco.to_sql(
             name=TABELA_STAGING,
@@ -183,8 +195,8 @@ def executar_pipeline(nome_tabela, engine_banco):
         )
         
         consolidar_dados_upsert(engine_banco, TABELA_STAGING, nome_tabela)
-        print(f"✅ Bloco #{bloco_num} consolidado com sucesso no Postgres (+{linhas_bloco} linhas / Total acumulado de novas linhas processadas nesta execução: {total_processado}).")
-
+        logger.info(f"✅ Bloco #{bloco_num} consolidado com sucesso no Postgres (+{linhas_bloco} linhas / Total acumulado de novas linhas processadas nesta execução: {total_processado}).")
+ 
         # Avança os ponteiros da paginação
         bloco_num += 1
         offset_atual += limite_bloco
@@ -206,7 +218,7 @@ if __name__ == "__main__":
         pass
 
     duracao = (time.time() - start_time) / 60
-    print(f"\n⏱️ Tempo total de processamento do job: {duracao:.2f} minutos.")
+    logger.info(f"⏱️ Tempo total de processamento do job: {duracao:.2f} minutos.")
 
     # ==============================================================================
     # GENERATION OF THE BRONZE MANIFEST FOR DVC ORCHESTRATION
@@ -230,4 +242,4 @@ if __name__ == "__main__":
     with open(manifest_path, "w") as f:
         json.dump(bronze_manifest, f, indent=4)
 
-    print("📝 Manifesto 'bronze_status.json' gerado com sucesso para o DVC!")
+    logger.info("📝 Manifesto 'bronze_status.json' gerado com sucesso para o DVC!")

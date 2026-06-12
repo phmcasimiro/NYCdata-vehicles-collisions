@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import urllib.parse
+import logging
 import dash
 from dash import dcc, html, Input, Output
 import plotly.express as px
@@ -9,6 +10,20 @@ import plotly.graph_objects as go
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
+from flask_caching import Cache
+
+# ==============================================================================
+# 0. CONFIGURAÇÃO DE LOGGING ESTRUTURADO
+# ==============================================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler("NYCdata/metadata/pipeline.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("GeoDevApp")
 
 # ==============================================================================
 # 1. CONFIGURAÇÕES DE CONEXÃO COM O BANCO DE DADOS
@@ -23,12 +38,20 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME")
 
 if not all([DB_USER, DB_PASS, DB_HOST, DB_PORT, DB_NAME]):
-    print("❌ Erro Crítico: Variáveis de ambiente de conexão não encontradas no .env")
+    logger.error("❌ Erro Crítico: Variáveis de ambiente de conexão não encontradas no .env")
     sys.exit(1)
 
 senha_tratada = urllib.parse.quote_plus(DB_PASS)
 DATABASE_URL = f"postgresql://{DB_USER}:{senha_tratada}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-engine = create_engine(DATABASE_URL)
+
+# Otimização do Pool de Conexões do SQLAlchemy para Produção
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=20,
+    max_overflow=30,
+    pool_timeout=30,
+    pool_recycle=1800
+)
 
 # Carregamento do GeoJSON canônico para o mapa
 geojson_path = os.path.join("NYCdata", "data", "geojson", "nyc_borough.geojson")
@@ -52,6 +75,13 @@ app = dash.Dash(
     ]
 )
 app.title = "🇺🇸 NYC Collisions Analytics - Camada Gold"
+
+# Configuração do Cache de Callbacks (Flask-Caching)
+cache = Cache(app.server, config={
+    'CACHE_TYPE': 'FileSystemCache',
+    'CACHE_DIR': 'NYCdata/cache',
+    'CACHE_DEFAULT_TIMEOUT': 300 # Cache de 5 minutos
+})
 
 THEME_COLORS = {
     "background_main": "#041C32",
@@ -246,7 +276,12 @@ BOROUGH_CAMERA = {
      Input("dropdown-year", "value"),
      Input("dropdown-quarter", "value")] 
 )
+@cache.memoize()
 def update_dashboard(selected_borough, selected_metric, selected_year, selected_quarter):
+    logger.info(
+        "Filtros acionados no dashboard: Borough=%s, Metric=%s, Year=%s, Quarter=%s",
+        selected_borough, selected_metric, selected_year, selected_quarter
+    )
     
     METRIC_LABELS = {
         "ACCIDENTS": "Total Collisions", "INJURED": "Persons Injured",
@@ -380,4 +415,6 @@ def update_dashboard(selected_borough, selected_metric, selected_year, selected_
     return fig_map, fig_temporal, fig_fatores
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8050)
+    from waitress import serve
+    logger.info("🚀 Iniciando servidor corporativo Waitress na porta 8050 com 8 threads ativas...")
+    serve(app.server, host="0.0.0.0", port=8050, threads=8)

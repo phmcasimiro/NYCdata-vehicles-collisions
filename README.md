@@ -35,6 +35,18 @@ Como o DVC (Data Version Control) é uma ferramenta baseada em arquivos e não v
 ### 7. Query Pushdown (Database Integration Patterns)
 Para otimizar o consumo de recursos computacionais, o projeto delega o processamento analítico pesado (agrupamentos temporais, uniões de fatores causais) diretamente para o motor relacional PostgreSQL por meio de **Views Materializadas** na camada Gold, poupando a memória RAM da aplicação web e do Pandas em tempo de execução.
 
+### 8. Servidor WSGI Corporativo (Waitress)
+O dashboard é executado com o **Waitress**, um servidor WSGI multi-threaded de alta concorrência para sistemas de produção Windows. Ele elimina o uso do servidor de desenvolvimento Flask nativo (monothread), sendo capaz de gerenciar múltiplos requests simultâneos com estabilidade.
+
+### 9. Caching de Callbacks (Flask-Caching)
+Para minimizar queries repetitivas e reduzir a carga do banco de dados, o dashboard integra o **Flask-Caching** utilizando o sistema de arquivos local (`FileSystemCache`). Filtros idênticos selecionados por diferentes usuários são carregados instantaneamente da memória/disco sem acionar novos acessos ao PostgreSQL.
+
+### 10. Robust Connection Pooling (SQLAlchemy)
+A conexão com o banco de dados PostgreSQL utiliza um pool otimizado no SQLAlchemy que reutiliza conexões abertas (`pool_size=20`, `max_overflow=30`, `pool_recycle=1800`), prevenindo erros de exaustão de conexões sob cargas simultâneas de até 200 usuários ativos.
+
+### 11. Logging Estruturado e Centralizado
+Substituímos chamadas genéricas de `print` pelo módulo padrão `logging` do Python em todos os scripts do pipeline (`1_nycdata_etl.py`, `2_nycdata_silver.py`, `3_nycdata_gold_dash.py`). Todas as atividades, avisos de qualidade de dados e erros são salvos de forma consolidada no arquivo físico `NYCdata/metadata/pipeline.log`.
+
 ---
 
 ## O PIPELINE MEDALLION: ETAPAS SEQUENCIAIS
@@ -69,8 +81,8 @@ Para otimizar o consumo de recursos computacionais, o projeto delega o processam
 ## RESULTADOS E APRESENTAÇÃO (LANDING PAGE & DASHBOARD)
 
 - **Apresentação do Portfólio (Landing Page):** A pasta `landing/` contém uma interface web moderna de apresentação desenvolvida em HTML/CSS/JS puros, que atua como vitrine do portfólio de engenharia de dados. A Landpage detalha a arquitetura, apresenta as tecnologias utilizadas e exibe estatísticas resumidas.
-- **Dashboard Reativo (Dash/Plotly):** Com a consolidação das materialized views na camada Gold, o script **`3_nycdata_gold_dash.py`** assume o papel de front-end analítico do projeto, conectando-se diretamente ao Postgres/PostGIS.
-- **Performance via Pushdown:** Ao interagir com os seletores, o Dash não realiza varreduras pesadas nas tabelas transacionais (Bronze ou Silver) e não consome memória RAM desnecessária. A lógica reativa (callbacks) faz o *Query Pushdown* direto para as Materialized Views Gold do Postgres, garantindo respostas rápidas.
+- **Dashboard Reativo (Dash/Plotly):** Com a consolidação das materialized views na camada Gold, o script **`3_nycdata_gold_dash.py`** assume o papel de front-end analítico do projeto, conectando-se diretamente ao Postgres/PostGIS. Ele opera de forma segura e paralela sob o servidor WSGI corporativo **Waitress**.
+- **Performance via Pushdown & Caching:** Ao interagir com os seletores, o Dash não realiza varreduras pesadas nas tabelas transacionais (Bronze ou Silver) e não consome memória RAM desnecessária. A lógica reativa (callbacks) faz o *Query Pushdown* direto para as Materialized Views Gold do Postgres. Adicionalmente, consultas repetidas de filtros idênticos são servidas diretamente do **Flask-Caching**, garantindo respostas em sub-milissegundos.
 - **Dupla Leitura Temporal:** O gráfico de evolução temporal plota simultaneamente uma linha de volatilidade mês a mês e uma linha de tendência de longo prazo (Média Móvel de 12 meses). Ao selecionar um trimestre específico (ex: 1º Trimestre), o banco retorna exatamente 3 coordenadas (Janeiro, Fevereiro e Março), renderizando no gráfico.
 
 ---

@@ -134,7 +134,54 @@ DROP INDEX IF EXISTS idx_gold_factors_borough;
 CREATE UNIQUE INDEX idx_gold_factors_unique_composite 
 ON public.nycdata_vehicles_collisions_gold_fact_contributing_factors (borough, contributing_factor);
 ```
+** Resultado da Implementação**
+```sql
+-- public.nycdata_vehicles_collisions_gold_fact_contributing_factors fonte
 
+CREATE MATERIALIZED VIEW public.nycdata_vehicles_collisions_gold_fact_contributing_factors
+TABLESPACE pg_default
+AS SELECT COALESCE(NULLIF(unified_factors.borough::text, ''::text), 'UNKNOWN'::text) AS borough,
+    EXTRACT(year FROM unified_factors.crash_timestamp)::integer AS year,
+    EXTRACT(month FROM unified_factors.crash_timestamp)::integer AS month,
+    unified_factors.contributing_factor,
+    count(*) AS total_collisions
+   FROM ( SELECT nycdata_vehicle_collisions_cleaned.borough,
+            nycdata_vehicle_collisions_cleaned.crash_timestamp,
+            nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_1 AS contributing_factor
+           FROM nycdata_vehicle_collisions_cleaned
+          WHERE nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_1 IS NOT NULL
+        UNION ALL
+         SELECT nycdata_vehicle_collisions_cleaned.borough,
+            nycdata_vehicle_collisions_cleaned.crash_timestamp,
+            nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_2
+           FROM nycdata_vehicle_collisions_cleaned
+          WHERE nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_2 IS NOT NULL
+        UNION ALL
+         SELECT nycdata_vehicle_collisions_cleaned.borough,
+            nycdata_vehicle_collisions_cleaned.crash_timestamp,
+            nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_3
+           FROM nycdata_vehicle_collisions_cleaned
+          WHERE nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_3 IS NOT NULL
+        UNION ALL
+         SELECT nycdata_vehicle_collisions_cleaned.borough,
+            nycdata_vehicle_collisions_cleaned.crash_timestamp,
+            nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_4
+           FROM nycdata_vehicle_collisions_cleaned
+          WHERE nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_4 IS NOT NULL
+        UNION ALL
+         SELECT nycdata_vehicle_collisions_cleaned.borough,
+            nycdata_vehicle_collisions_cleaned.crash_timestamp,
+            nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_5
+           FROM nycdata_vehicle_collisions_cleaned
+          WHERE nycdata_vehicle_collisions_cleaned.contributing_factor_vehicle_5 IS NOT NULL) unified_factors
+  WHERE unified_factors.contributing_factor <> ALL (ARRAY[''::text, 'UNSPECIFIED'::text, 'UNKNOWN'::text, 'Unspecified'::text])
+  GROUP BY unified_factors.borough, (EXTRACT(year FROM unified_factors.crash_timestamp)), (EXTRACT(month FROM unified_factors.crash_timestamp)), unified_factors.contributing_factor
+WITH DATA;
+
+-- View indexes:
+CREATE INDEX idx_gold_factors_categorical ON public.nycdata_vehicles_collisions_gold_fact_contributing_factors USING btree (contributing_factor);
+CREATE UNIQUE INDEX idx_gold_factors_unique_composite ON public.nycdata_vehicles_collisions_gold_fact_contributing_factors USING btree (year, month, borough, contributing_factor);
+```
 ---
 
 ### Melhoria 5: Implementação de Logging Estruturado
