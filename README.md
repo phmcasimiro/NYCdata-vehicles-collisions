@@ -94,9 +94,9 @@ GeoDev/
 ├── .dvc/                          # Metadados e cache do DVC para versionamento de dados e pipeline
 ├── .dvcignore                     # Arquivos ignorados pelo DVC durante o versionamento
 ├── .gitignore                     # Arquivos ignorados pelo Git no repositório
+├── checkup_env.md                 # Playbook de auditoria e verificação do ecossistema (banco, DVC, cache, etc.)
 ├── dvc.lock                       # Estado travado das etapas do pipeline DVC e hashes de saída
 ├── dvc.yaml                       # Definição das etapas do pipeline, entradas e saídas do DVC
-├── etapas.md                      # Documento de etapas do projeto, planejamento e notas de execução
 ├── landing/                       # Página de apresentação/portfólio do projeto (Landing Page)
 │   ├── assets/                    # Recursos de imagem e screenshot do dashboard
 │   │   └── images/
@@ -112,14 +112,18 @@ GeoDev/
 │   ├── NYCdata_MotorVehicleCollisions.ipynb # Notebook de análise e protótipo exploratório dos dados NYC
 │   ├── README.md                  # Documentação detalhada e técnica específica do subprojeto NYCdata
 │   ├── docker-compose.yml         # Configuração de serviços Docker necessários para o ambiente de dados
-│   ├── querys.txt                 # Definições de tabelas, índices e views materializadas no Postgres
 │   ├── run_pipeline.bat           # Script de lote que ativa o ambiente e dispara o pipeline DVC
 │   ├── assets/                    # Imagens e recursos do dashboard Dash
+│   │   ├── dashboard_geral.png    # Screenshot geral do dashboard reativo
+│   │   └── nyc_opendata.png       # Logomarca do portal NYC Open Data
+│   ├── cache/                     # Cache local persistente de callbacks gerado pelo Flask-Caching
 │   ├── data/                      # Dados de entrada e geojson locais
 │   │   ├── bronze_raw/            # Armazenamento local dos dados brutos ingeridos incrementalmente
 │   │   └── geojson/               # Arquivo geográfico nyc_borough.geojson para mapas coropléticos
 │   ├── metadata/                  # Metadados de controle de execução e status das camadas do pipeline
+│   │   ├── .gitignore             # Arquivos ignorados sob o diretório de metadados
 │   │   ├── bronze_status.json     # Relatório de status da camada Bronze gerado após ingestão
+│   │   ├── pipeline.log           # Log consolidado e estruturado de execução de todo o pipeline
 │   │   └── silver_status.json     # Relatório de status da camada Silver com métricas de qualidade
 │   └── scripts/                   # Código-fonte principal do pipeline e dos contratos de dados
 │       ├── 1_nycdata_etl.py       # Script de Ingestão incremental para a camada Bronze
