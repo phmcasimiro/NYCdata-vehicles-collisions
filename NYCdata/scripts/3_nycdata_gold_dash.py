@@ -76,6 +76,19 @@ app = dash.Dash(
 )
 app.title = "🇺🇸 NYC Collisions Analytics - Camada Gold"
 
+# Habilita CORS nativo de forma segura (restrito a localhost e file://)
+@app.server.after_request
+def after_request(response):
+    from flask import request
+    origin = request.headers.get('Origin')
+    if origin and (origin.startswith('http://localhost') or origin.startswith('http://127.0.0.1') or origin == 'null'):
+        response.headers.add('Access-Control-Allow-Origin', origin)
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
+    return response
+
+
+
 # Configuração do Cache de Callbacks (Flask-Caching)
 cache = Cache(app.server, config={
     'CACHE_TYPE': 'FileSystemCache',
@@ -413,6 +426,77 @@ def update_dashboard(selected_borough, selected_metric, selected_year, selected_
     fig_fatores.update_layout(template="plotly_dark", yaxis={'categoryorder':'total ascending'}, paper_bgcolor=THEME_COLORS["background_card"], plot_bgcolor=THEME_COLORS["background_card"], font=dict(family="'Inter', sans-serif"))
 
     return fig_map, fig_temporal, fig_fatores
+
+
+# ==============================================================================
+# 4. ENDPOINT DE API DE TELEMETRIA DO PIPELINE (PARA A LANDING PAGE)
+# ==============================================================================
+from flask import jsonify
+
+@app.server.route("/api/status")
+def get_pipeline_status():
+    # Caminhos físicos dos manifestos de status
+    bronze_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "metadata", "bronze_status.json")
+    silver_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "metadata", "silver_status.json")
+
+    # Valores padrão de fallback estático (baseados no histórico inicial do projeto)
+    last_ingest_date = "N/A"
+    last_ingest_qty = 0
+    total_approved = 2259956
+    total_rejected_dlq = 8959
+    watermark_crash_date = "N/A"
+
+    # 1. Tentar ler bronze_status.json para obter carimbo de data e quantidade da última carga incremental
+    if os.path.exists(bronze_path):
+        try:
+            with open(bronze_path, "r", encoding="utf-8") as f:
+                bronze_data = json.load(f)
+                last_ingest_date = bronze_data.get("updated_at", "N/A")
+                last_ingest_qty = bronze_data.get("records_ingested", 0)
+                watermark_crash_date = bronze_data.get("watermark_crash_date", "N/A")
+        except Exception as e:
+            logger.warning(f"Erro ao ler bronze_status.json para API: {e}")
+
+    # 2. Tentar ler silver_status.json para fallback local das métricas
+    if os.path.exists(silver_path):
+        try:
+            with open(silver_path, "r", encoding="utf-8") as f:
+                silver_data = json.load(f)
+                metrics = silver_data.get("metrics", {})
+                total_approved = metrics.get("total_records_approved", total_approved)
+                total_rejected_dlq = metrics.get("total_records_rejected_dlq", total_rejected_dlq)
+        except Exception as e:
+            logger.warning(f"Erro ao ler silver_status.json para API: {e}")
+
+    # 3. Consulta ao PostgreSQL para contagens dinâmicas e precisas em tempo real
+    try:
+        with engine.connect() as conn:
+            # Contagem de validados (Silver)
+            query_approved = "SELECT COUNT(*) FROM public.nycdata_vehicle_collisions_cleaned;"
+            db_approved = conn.execute(text(query_approved)).scalar()
+            if db_approved is not None:
+                total_approved = db_approved
+
+            # Contagem de rejeitados (DLQ)
+            query_rejections = "SELECT COUNT(*) FROM public.nycdata_vehicle_collisions_rejections;"
+            db_rejections = conn.execute(text(query_rejections)).scalar()
+            if db_rejections is not None:
+                total_rejected_dlq = db_rejections
+    except Exception as e:
+        logger.warning(f"Erro ao consultar contagens dinâmicas no PostgreSQL: {e}")
+
+    # 4. Estrutura a resposta final
+    data = {
+        "last_ingest_date": last_ingest_date,
+        "last_ingest_qty": last_ingest_qty,
+        "total_approved": total_approved,
+        "total_rejected_dlq": total_rejected_dlq,
+        "watermark_crash_date": watermark_crash_date
+    }
+
+    response = jsonify(data)
+    return response
+
 
 if __name__ == "__main__":
     from waitress import serve

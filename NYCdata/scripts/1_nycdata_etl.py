@@ -2,10 +2,11 @@ import os
 import time
 from datetime import datetime
 import logging
+import json
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlencode
 
 # Configuração de Logging Estruturado
 logging.basicConfig(
@@ -59,6 +60,31 @@ dtype_mapeamento = {
     "number_of_motorist_killed": float
 }
 
+
+def migrar_schema_bronze(engine_banco, nome_tabela):
+    """Adiciona a coluna de auditoria temporal bronze_inserted_at se ainda não existir (idempotente)."""
+    with engine_banco.connect() as conexao:
+        # Verifica se a tabela existe antes de tentar alterar
+        query_tabela_existe = f"""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = '{nome_tabela}'
+            );
+        """
+        tabela_existe = conexao.execute(text(query_tabela_existe)).scalar()
+
+        if tabela_existe:
+            logger.info("🔧 Verificando coluna de auditoria 'bronze_inserted_at'...")
+            conexao.execute(text(f"""
+                ALTER TABLE "{nome_tabela}" 
+                ADD COLUMN IF NOT EXISTS bronze_inserted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+            """))
+            conexao.commit()
+            logger.info("✅ Coluna 'bronze_inserted_at' garantida na tabela Bronze.")
+        else:
+            logger.info("ℹ️ Tabela ainda não existe. A coluna será criada junto com a estrutura na primeira carga.")
+
+
 def criar_constraints_se_nao_existirem(engine_banco, nome_tabela, df_modelo):
     """Garante que a tabela exista com o schema completo e possua a constraint de UNIQUE no collision_id."""
     with engine_banco.connect() as conexao:
@@ -79,6 +105,12 @@ def criar_constraints_se_nao_existirem(engine_banco, nome_tabela, df_modelo):
                 index=False
             )
             conexao.commit()
+            # Adiciona a coluna de auditoria imediatamente após a criação da tabela
+            conexao.execute(text(f"""
+                ALTER TABLE "{nome_tabela}" 
+                ADD COLUMN IF NOT EXISTS bronze_inserted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+            """))
+            conexao.commit()
 
         query_verificar_constraint = f"""
             SELECT COUNT(*) 
@@ -96,15 +128,20 @@ def criar_constraints_se_nao_existirem(engine_banco, nome_tabela, df_modelo):
                 logger.warning(f"⚠️ Nota ao aplicar a constraint: {e}")
 
 
-def obter_ponto_de_partida(engine_banco, nome_tabela):
-    """Verifica a quantidade de registros atuais na tabela destino para definir o offset incremental."""
+def obter_watermark_bronze(engine_banco, nome_tabela):
+    """Consulta o banco para descobrir a data do acidente mais recente já ingerido (Watermark Dinâmico)."""
     try:
-        query = f'SELECT COUNT(*) FROM "{nome_tabela}";'
+        query = f'SELECT MAX(crash_date) FROM "{nome_tabela}";'
         with engine_banco.connect() as conexao:
-            total_linhas = conexao.execute(text(query)).scalar()
-            return total_linhas if total_linhas else 0
+            resultado = conexao.execute(text(query)).scalar()
+            if resultado is not None:
+                # Converte para string ISO formatada para a API SODA
+                if isinstance(resultado, str):
+                    return resultado
+                return resultado.strftime("%Y-%m-%dT%H:%M:%S")
+            return None
     except Exception:
-        return 0
+        return None
 
 
 def extrair_bloco_com_retry(url, bloco_num, max_retries=3):
@@ -132,8 +169,10 @@ def extrair_bloco_com_retry(url, bloco_num, max_retries=3):
 def consolidar_dados_upsert(engine_banco, tabela_stg, tabela_final):
     """Executa o merge atômico (Upsert) dos dados dentro do banco, descartando registros repetidos."""
     query_upsert = f"""
-        INSERT INTO "{tabela_final}" 
-        SELECT * FROM "{tabela_stg}"
+        INSERT INTO "{tabela_final}" (
+            {', '.join(f'"{c}"' for c in _get_staging_columns(engine_banco, tabela_stg))}
+        )
+        SELECT *, NOW() AS bronze_inserted_at FROM "{tabela_stg}"
         ON CONFLICT (collision_id) 
         DO NOTHING; 
     """
@@ -142,29 +181,58 @@ def consolidar_dados_upsert(engine_banco, tabela_stg, tabela_final):
         conexao.commit()
 
 
+def _get_staging_columns(engine_banco, tabela_stg):
+    """Retorna a lista de colunas da staging + bronze_inserted_at para o UPSERT."""
+    with engine_banco.connect() as conexao:
+        result = conexao.execute(text(f"""
+            SELECT column_name FROM information_schema.columns 
+            WHERE table_name = '{tabela_stg}' ORDER BY ordinal_position;
+        """))
+        stg_cols = [row[0] for row in result]
+    stg_cols.append("bronze_inserted_at")
+    return stg_cols
+
+
 def executar_pipeline(nome_tabela, engine_banco):
-    """Orquestrador completo de extração, resiliência e carga do pipeline."""
+    """Orquestrador completo de extração, resiliência e carga do pipeline com Watermarking Dinâmico."""
     limite_bloco = 50000  
     total_processado = 0
     primeira_rodada = True
     
-    offset_atual = obter_ponto_de_partida(engine_banco, nome_tabela)
-    bloco_num = (offset_atual // limite_bloco) + 1
+    # =====================================================================
+    # WATERMARK DINÂMICO: Consulta o MAX(crash_date) existente no Postgres
+    # =====================================================================
+    watermark = obter_watermark_bronze(engine_banco, nome_tabela)
     
-    if offset_atual > 0:
-        logger.info(f"🔄 Carga retomada de forma incremental. Registro atual de partida: {offset_atual} (Bloco #{bloco_num}).")
+    if watermark is not None:
+        logger.info(f"🔍 Watermark encontrado: {watermark}. Ativando modo DELTA — apenas dados posteriores serão coletados.")
     else:
-        logger.info("🆕 Tabela vazia ou inexistente detectada. Iniciando processamento completo do histórico...")
+        logger.info("🆕 Nenhum watermark detectado (tabela vazia ou inexistente). Ativando CARGA COMPLETA do histórico...")
+    
+    bloco_num = 1
+    offset_atual = 0
 
     while True:
-        url_pagina = f"{API_URL_BASE}?$limit={limite_bloco}&$offset={offset_atual}&$order=collision_id"
+        # Monta a URL com $where dinâmico (URL-encoded) quando há watermark
+        query_params = {
+            "$limit": limite_bloco,
+            "$offset": offset_atual,
+            "$order": "collision_id"
+        }
+        if watermark is not None:
+            query_params["$where"] = f"crash_date > '{watermark}'"
+        
+        url_pagina = f"{API_URL_BASE}?{urlencode(query_params)}"
 
-        logger.info(f"⌛ Processando Bloco #{bloco_num} (Offset de busca: {offset_atual})...")
+        logger.info(f"⌛ Processando Bloco #{bloco_num} (Offset: {offset_atual}, Modo: {'DELTA' if watermark else 'FULL'})...")
         
         df_bloco = extrair_bloco_com_retry(url_pagina, bloco_num)
 
         if df_bloco.empty:
-            logger.info("🏁 Sincronização concluída com sucesso! Todos os dados disponíveis foram processados.")
+            if bloco_num == 1:
+                logger.info("🏁 Nenhum dado novo disponível na API desde o último watermark. Pipeline encerrado com sucesso.")
+            else:
+                logger.info("🏁 Sincronização concluída com sucesso! Todos os dados disponíveis foram processados.")
             break
  
         # Limpeza e tipagem explícita do ID para evitar incompatibilidades
@@ -185,7 +253,7 @@ def executar_pipeline(nome_tabela, engine_banco):
         linhas_bloco = len(df_bloco)
         total_processado += linhas_bloco
  
-        # Carga na tabela de Staging temporária
+        # Carga na tabela de Staging temporária (SEM a coluna bronze_inserted_at)
         df_bloco.to_sql(
             name=TABELA_STAGING,
             con=engine_banco,
@@ -195,7 +263,7 @@ def executar_pipeline(nome_tabela, engine_banco):
         )
         
         consolidar_dados_upsert(engine_banco, TABELA_STAGING, nome_tabela)
-        logger.info(f"✅ Bloco #{bloco_num} consolidado com sucesso no Postgres (+{linhas_bloco} linhas / Total acumulado de novas linhas processadas nesta execução: {total_processado}).")
+        logger.info(f"✅ Bloco #{bloco_num} consolidado com sucesso no Postgres (+{linhas_bloco} linhas / Total acumulado nesta execução: {total_processado}).")
  
         # Avança os ponteiros da paginação
         bloco_num += 1
@@ -203,12 +271,17 @@ def executar_pipeline(nome_tabela, engine_banco):
         
         time.sleep(1.5)
 
+    return total_processado
+
 
 if __name__ == "__main__":
     start_time = time.time()
 
+    # Executa a migração de schema (idempotente) antes de qualquer operação
+    migrar_schema_bronze(engine, TABELA_DESTINO)
+
     # Dispara a orquestração do pipeline
-    executar_pipeline(TABELA_DESTINO, engine)
+    total_ingested = executar_pipeline(TABELA_DESTINO, engine)
 
     try:
         with engine.connect() as conn:
@@ -223,14 +296,17 @@ if __name__ == "__main__":
     # ==============================================================================
     # GENERATION OF THE BRONZE MANIFEST FOR DVC ORCHESTRATION
     # ==============================================================================
-    import json
-    from datetime import datetime
+
+    # Obtém o watermark atualizado após a carga para registrar no manifesto
+    watermark_final = obter_watermark_bronze(engine, TABELA_DESTINO)
 
     # Estrutura o dicionário de metadados do estado atual da carga
     bronze_manifest = {
         "status": "success",
-        "updated_at": datetime.utcnow().isoformat() + "Z",
-        "pipeline_version": "v2.0.0"
+        "updated_at": datetime.now(tz=__import__('datetime').timezone.utc).isoformat(),
+        "pipeline_version": "v3.0.0",
+        "records_ingested": total_ingested,
+        "watermark_crash_date": watermark_final
     }
 
     # Define o caminho físico correto baseado na estrutura real do seu projeto

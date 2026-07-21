@@ -1,6 +1,7 @@
 # NYCdata/scripts/2_nycdata_silver.py
 import os
 import sys
+import time
 import urllib.parse
 import json
 import logging
@@ -40,21 +41,183 @@ DATABASE_URL = f"postgresql://{DB_USER}:{senha_encriptada}@{DB_HOST}:{DB_PORT}/{
 # Cria a engine de conexão com o banco de dados Postgres (Docker)
 engine = create_engine(DATABASE_URL)
 
+# Caminho do manifesto de estado da Silver
+METADATA_DIR = "NYCdata/metadata"
+SILVER_STATUS_PATH = os.path.join(METADATA_DIR, "silver_status.json")
+
 logger.info("⚡ Conexão com o banco de dados configurada com sucesso!")
 logger.info(f"📋 Mapeamento de colunas carregado de 'schemas.py'. Total de colunas: {len(MAP_BRONZE_TO_SILVER)}")
 
+
 # ==============================================================================
-# FASE 1: LEITURA DA BRONZE E HIGIENIZAÇÃO DE ESQUEMA (Renaming & Casting)
+# FUNÇÕES DE WATERMARKING E DEDUPLICAÇÃO
 # ==============================================================================
+
+def obter_watermark_silver():
+    """Lê o token temporal da última execução bem-sucedida da Silver a partir do manifesto JSON."""
+    if not os.path.exists(SILVER_STATUS_PATH):
+        logger.info("ℹ️ Manifesto silver_status.json não encontrado. Será executada uma carga completa inicial.")
+        return None
+
+    try:
+        with open(SILVER_STATUS_PATH, "r", encoding="utf-8") as f:
+            status_data = json.load(f)
+        
+        token = status_data.get("last_bronze_watermark")
+        if token:
+            logger.info(f"🔍 Watermark Silver encontrado: {token}")
+            return token
+        else:
+            logger.info("ℹ️ Campo 'last_bronze_watermark' ausente no manifesto. Será executada uma carga completa.")
+            return None
+    except Exception as e:
+        logger.warning(f"⚠️ Erro ao ler silver_status.json: {e}. Será executada uma carga completa.")
+        return None
+
+
+def deduplicar_dlq_se_necessario(engine_banco):
+    """Executa a deduplicação cirúrgica da DLQ uma única vez, protegida por flag no manifesto."""
+    # Verifica se a deduplicação já foi realizada
+    if os.path.exists(SILVER_STATUS_PATH):
+        try:
+            with open(SILVER_STATUS_PATH, "r", encoding="utf-8") as f:
+                status_data = json.load(f)
+            if status_data.get("dlq_deduplicated") is True:
+                logger.info("✅ DLQ já deduplicada anteriormente. Pulando etapa.")
+                return
+        except Exception:
+            pass  # Se não conseguir ler, executa a deduplicação por segurança
+
+    logger.info("🧹 Iniciando deduplicação da DLQ (execução única)...")
+
+    try:
+        with engine_banco.connect() as conexao:
+            # Conta registros antes
+            count_antes = conexao.execute(
+                text("SELECT COUNT(*) FROM nycdata_vehicle_collisions_rejections;")
+            ).scalar() or 0
+
+            if count_antes == 0:
+                logger.info("ℹ️ DLQ vazia. Nada a deduplicar.")
+                _registrar_flag_dlq_deduplicada()
+                return
+
+            # Deduplicação: mantém apenas o registro mais recente por collision_id
+            conexao.execute(text("""
+                DELETE FROM nycdata_vehicle_collisions_rejections
+                WHERE id NOT IN (
+                    SELECT DISTINCT ON (collision_id) id
+                    FROM nycdata_vehicle_collisions_rejections
+                    ORDER BY collision_id, rejected_at DESC
+                );
+            """))
+            conexao.commit()
+
+            # Conta registros depois
+            count_depois = conexao.execute(
+                text("SELECT COUNT(*) FROM nycdata_vehicle_collisions_rejections;")
+            ).scalar() or 0
+
+            removidos = count_antes - count_depois
+            logger.info(f"🧹 Deduplicação da DLQ concluída: {removidos:,} registros duplicados removidos ({count_antes:,} → {count_depois:,}).")
+
+    except Exception as e:
+        logger.error(f"❌ Erro durante a deduplicação da DLQ: {e}")
+        raise
+
+    # Registra a flag para nunca mais repetir
+    _registrar_flag_dlq_deduplicada()
+
+
+def _registrar_flag_dlq_deduplicada():
+    """Registra no silver_status.json que a deduplicação foi realizada."""
+    status_data = {}
+    if os.path.exists(SILVER_STATUS_PATH):
+        try:
+            with open(SILVER_STATUS_PATH, "r", encoding="utf-8") as f:
+                status_data = json.load(f)
+        except Exception:
+            pass
+    
+    status_data["dlq_deduplicated"] = True
+    
+    os.makedirs(METADATA_DIR, exist_ok=True)
+    with open(SILVER_STATUS_PATH, "w", encoding="utf-8") as f:
+        json.dump(status_data, f, indent=4, ensure_ascii=False)
+    
+    logger.info("📝 Flag 'dlq_deduplicated' registrada no silver_status.json.")
+
+
+# ==============================================================================
+# FASE 0: DEDUPLICAÇÃO DA DLQ (MIGRAÇÃO ÚNICA)
+# ==============================================================================
+
+deduplicar_dlq_se_necessario(engine)
+
+# ==============================================================================
+# FASE 1: LEITURA INCREMENTAL DA BRONZE (Watermarking Dinâmico)
+# ==============================================================================
+
+start_time = time.time()
 
 logger.info("📖 Iniciando a leitura dos dados da Camada Bronze...")
 
-# Query para extrair os dados brutos da Bronze
-query_bronze = "SELECT * FROM nycdata_vehicle_collisions_raw;"
+# Obtém o token de watermark da Silver
+watermark_token = obter_watermark_silver()
 
-# Lê a tabela inteira do Postgres para a memória do Python usando Pandas
-df_raw = pd.read_sql_query(query_bronze, con=engine)
-logger.info(f"✅ Dados carregados com sucesso! Total de registros lidos: {len(df_raw):,}")
+# Monta a query de leitura DELTA ou COMPLETA
+if watermark_token is not None:
+    query_bronze = text("""
+        SELECT * FROM nycdata_vehicle_collisions_raw 
+        WHERE bronze_inserted_at > :last_token
+        ORDER BY collision_id;
+    """)
+    logger.info(f"📖 Leitura incremental: buscando registros com bronze_inserted_at > '{watermark_token}'")
+    df_raw = pd.read_sql_query(query_bronze, con=engine, params={"last_token": watermark_token})
+else:
+    query_bronze = "SELECT * FROM nycdata_vehicle_collisions_raw ORDER BY collision_id;"
+    logger.info("📖 Leitura completa da Bronze (carga inicial)...")
+    df_raw = pd.read_sql_query(query_bronze, con=engine)
+
+logger.info(f"📊 Total de registros lidos da Bronze: {len(df_raw):,}")
+
+# ==============================================================================
+# ENCERRAMENTO GRACIOSO: DELTA VAZIO
+# ==============================================================================
+
+if len(df_raw) == 0:
+    duracao = (time.time() - start_time)
+    logger.info(f"🏁 Nenhum dado novo para processar. Pipeline Silver encerrado graciosamente em {duracao:.1f} segundos.")
+    
+    # Obtém o watermark atual da Bronze para manter no manifesto
+    with engine.connect() as conn:
+        max_inserted_at = conn.execute(
+            text("SELECT MAX(bronze_inserted_at) FROM nycdata_vehicle_collisions_raw;")
+        ).scalar()
+    
+    # Grava manifesto mesmo com delta vazio para manter consistência DVC
+    manifesto_silver = {
+        "layer": "silver",
+        "pipeline_version": "v3.0.0",
+        "timestamp_execution": pd.Timestamp.now(tz="UTC").isoformat(),
+        "last_bronze_watermark": max_inserted_at.isoformat() if max_inserted_at else watermark_token,
+        "dlq_deduplicated": True,
+        "metrics": {
+            "total_records_processed": 0,
+            "total_records_approved": 0,
+            "total_records_rejected_dlq": 0
+        }
+    }
+    os.makedirs(METADATA_DIR, exist_ok=True)
+    with open(SILVER_STATUS_PATH, "w", encoding="utf-8") as f:
+        json.dump(manifesto_silver, f, indent=4, ensure_ascii=False)
+    
+    logger.info(f"💾 Manifesto de estado (delta vazio) guardado em: {SILVER_STATUS_PATH}")
+    sys.exit(0)
+
+# ==============================================================================
+# FASE 2: HIGIENIZAÇÃO DE ESQUEMA (Renaming & Casting)
+# ==============================================================================
 
 logger.info("🔄 Aplicando a renomeação uniforme para o padrão internacional (EUA/Canadá)...")
 # Executa a renomeação das colunas usando o mapeamento importado do 'schemas.py'
@@ -66,13 +229,13 @@ logger.info("🧪 Executando a tipagem estrita (Casting) e tratamento preliminar
 df_silver["zip_code"] = df_silver["zip_code"].astype(str).str.strip()
 df_silver["zip_code"] = df_silver["zip_code"].replace({"nan": "UNKNOWN", "": "UNKNOWN"})
 
-logger.info("✅ Fase 1 concluída com sucesso absoluto!")
+logger.info("✅ Fase de renomeação e casting concluída com sucesso!")
 
 # ==============================================================================
-# FASE 2: ENGENHARIA DE ATRIBUTOS TEMPORAIS E FUSOS (Feature Engineering)
+# FASE 3: ENGENHARIA DE ATRIBUTOS TEMPORAIS E FUSOS (Feature Engineering)
 # ==============================================================================
 
-logger.info("📅 Iniciando a Fase 2: Unificação de Data/Hora e Padronização de Fusos...")
+logger.info("📅 Iniciando a Fase 3: Unificação de Data/Hora e Padronização de Fusos...")
 
 # 1. Combinar Data e Hora brutas em uma única string tratada
 df_silver["timestamp_concat"] = (
@@ -102,10 +265,10 @@ df_silver["time_bucket"] = pd.cut(
 # Removemos a coluna temporária de concatenação
 df_silver = df_silver.drop(columns=["timestamp_concat"])
 
-logger.info("✅ Fase 2 concluída! Atributos temporais gerados com sucesso.")
+logger.info("✅ Fase 3 concluída! Atributos temporais gerados com sucesso.")
 
 # ==============================================================================
-# FASES 3, 4, 5 & GOVERNANÇA: CONTRATO DE DADOS E VALIDAÇÃO ESTRITA (Pydantic + DLQ)
+# FASES 4 & 5: CONTRATO DE DADOS E VALIDAÇÃO ESTRITA (Pydantic + DLQ)
 # ==============================================================================
 
 logger.info("🛡️ Iniciando a validação em lote do Contrato de Dados (Pydantic + Chunking + Bounding Box)...")
@@ -164,7 +327,7 @@ for i in range(0, total_linhas, CHUNK_SIZE):
                 "collision_id": record.get("collision_id"),
                 "rejection_reason": str(e),
                 "rejected_at": pd.Timestamp.now(tz="UTC"),
-                "pipeline_version": "v2.0.0",
+                "pipeline_version": "v3.0.0",
                 "raw_payload": str(record)  # Serializa o dicionário problemático como string TEXT
             })
 
@@ -176,7 +339,7 @@ logger.info(f"   ❌ Registros corrompidos/enviados para a DLQ: {errors_count:,}
 df_silver = pd.DataFrame(validated_records)
 if not df_silver.empty:
     df_silver["silver_processed_at"] = pd.Timestamp.now(tz="UTC")
-    df_silver["pipeline_version"] = "v2.0.0"
+    df_silver["pipeline_version"] = "v3.0.0"
 
 df_rejections = pd.DataFrame(rejections_list)  # Criação do DataFrame de erros
 
@@ -239,7 +402,7 @@ CREATE TABLE IF NOT EXISTS nycdata_vehicle_collisions_cleaned (
 create_dlq_table_query = """
 CREATE TABLE IF NOT EXISTS nycdata_vehicle_collisions_rejections (
     id SERIAL PRIMARY KEY,
-    collision_id BIGINT,
+    collision_id BIGINT UNIQUE,
     rejection_reason TEXT,
     rejected_at TIMESTAMP WITH TIME ZONE,
     pipeline_version VARCHAR(20),
@@ -252,16 +415,42 @@ with engine.begin() as conn:
     conn.execute(text(create_table_query))
     conn.execute(text(create_dlq_table_query))
 
-# 3. Gravação Física dos Dados Rejeitados na DLQ (Se houver rejeições)
+# ==============================================================================
+# 3. GRAVAÇÃO FÍSICA DOS DADOS REJEITADOS NA DLQ (UPSERT IDEMPOTENTE)
+# ==============================================================================
 if not df_rejections.empty:
-    logger.info(f"📉 Despejando {len(df_rejections):,} registros corrompidos na tabela de DLQ...")
+    logger.info(f"📉 Despejando {len(df_rejections):,} registros corrompidos na DLQ via Upsert de segurança...")
+    
+    # Remove duplicatas internas do próprio lote em memória para otimizar o I/O
+    df_rejections = df_rejections.drop_duplicates(subset=["collision_id"], keep="first")
+    
+    NOM_STAGING_DLQ = "stg_nyc_rejections_tmp"
+    
+    # 1. Desagregando o lote em uma tabela volátil de staging
     df_rejections.to_sql(
-        name="nycdata_vehicle_collisions_rejections",
+        name=NOM_STAGING_DLQ,
         con=engine,
-        if_exists="append",  # Acumula o histórico de erros de múltiplas cargas
+        if_exists="replace",
         index=False,
         chunksize=10000
     )
+    
+    # 2. Executa o merge atômico: se o ID já foi rejeitado no passado, ignora (DO NOTHING)
+    upsert_dlq_query = f"""
+    INSERT INTO nycdata_vehicle_collisions_rejections (
+        collision_id, rejection_reason, rejected_at, pipeline_version, raw_payload
+    )
+    SELECT 
+        collision_id, rejection_reason, rejected_at, pipeline_version, raw_payload
+    FROM {NOM_STAGING_DLQ}
+    ON CONFLICT (collision_id) DO NOTHING;
+    """
+    
+    with engine.begin() as conn:
+        conn.execute(text(upsert_dlq_query))
+        conn.execute(text(f"DROP TABLE IF EXISTS {NOM_STAGING_DLQ};"))
+        
+    logger.info("✅ Gravação idempotente na DLQ concluída com sucesso absoluto!")
 else:
     logger.info("🎉 Excelente: Nenhum registro foi rejeitado nesta carga.")
 
@@ -337,13 +526,20 @@ logger.info("🏆 [SUCESSO ABSOLUTO] A Camada Silver e a DLQ foram completamente
 
 logger.info("📝 Gerando o Manifesto de Estado da Camada Silver para o DVC...")
 
-metadata_dir = "NYCdata/metadata"
-os.makedirs(metadata_dir, exist_ok=True)
+# Obtém o watermark atualizado: MAX(bronze_inserted_at) da tabela Bronze
+with engine.connect() as conn:
+    max_bronze_inserted_at = conn.execute(
+        text("SELECT MAX(bronze_inserted_at) FROM nycdata_vehicle_collisions_raw;")
+    ).scalar()
+
+os.makedirs(METADATA_DIR, exist_ok=True)
 
 manifesto_silver = {
     "layer": "silver",
-    "pipeline_version": "v2.0.0",
+    "pipeline_version": "v3.0.0",
     "timestamp_execution": pd.Timestamp.now(tz="UTC").isoformat(),
+    "last_bronze_watermark": max_bronze_inserted_at.isoformat() if max_bronze_inserted_at else None,
+    "dlq_deduplicated": True,
     "metrics": {
         "total_records_processed": int(total_linhas),
         "total_records_approved": int(len(df_silver)),
@@ -351,8 +547,9 @@ manifesto_silver = {
     }
 }
 
-manifesto_path = os.path.join(metadata_dir, "silver_status.json")
-with open(manifesto_path, "w", encoding="utf-8") as f:
+with open(SILVER_STATUS_PATH, "w", encoding="utf-8") as f:
     json.dump(manifesto_silver, f, indent=4, ensure_ascii=False)
 
-logger.info(f"💾 Manifesto de estado guardado com sucesso em: {manifesto_path}")
+duracao = (time.time() - start_time)
+logger.info(f"💾 Manifesto de estado guardado com sucesso em: {SILVER_STATUS_PATH}")
+logger.info(f"⏱️ Tempo total de processamento da Silver: {duracao:.1f} segundos.")

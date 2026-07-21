@@ -83,18 +83,39 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
         </a>
 
-        <div class="hero__kpis">
-          <div class="hero__kpi">
-            <span class="hero__kpi-value" data-target="2264789" data-suffix="">0</span>
-            <span class="hero__kpi-label">Records Processed</span>
+        <div class="hero__kpis-grid">
+          <div class="hero__kpi-group">
+            <h4 class="hero__kpi-group-title">Scope Metrics</h4>
+            <div class="hero__kpis-row">
+              <div class="hero__kpi">
+                <span class="hero__kpi-value" data-kpi="records-processed" data-target="2268915" data-suffix="">0</span>
+                <span class="hero__kpi-label">Total Records Processed</span>
+              </div>
+            </div>
           </div>
-          <div class="hero__kpi">
-            <span class="hero__kpi-value" data-target="13" data-suffix="+">0</span>
-            <span class="hero__kpi-label">Years of Data</span>
-          </div>
-          <div class="hero__kpi">
-            <span class="hero__kpi-value" data-target="5" data-suffix="">0</span>
-            <span class="hero__kpi-label">NYC Boroughs</span>
+          
+          <div class="hero__kpi-group">
+            <h4 class="hero__kpi-group-title">Pipeline Telemetry</h4>
+            <div class="hero__kpis-row">
+              <div class="hero__kpi">
+                <span class="hero__kpi-value" data-kpi="last-ingest-qty" data-target="0" data-suffix="">0</span>
+                <span class="hero__kpi-label">Last Ingestion Volume</span>
+              </div>
+              <div class="hero__kpi">
+                <span class="hero__kpi-value" data-kpi="records-approved" data-target="2259956" data-suffix="">0</span>
+                <span class="hero__kpi-label">Validated Records</span>
+              </div>
+              <div class="hero__kpi">
+                <span class="hero__kpi-value" data-kpi="records-rejected" data-target="8959" data-suffix="">0</span>
+                <span class="hero__kpi-label">Rejected (DLQ)</span>
+              </div>
+            </div>
+            <div class="hero__kpi-timestamp">
+              Last API Ingestion: <span id="last-ingest-date">N/A</span>
+            </div>
+            <div class="hero__kpi-timestamp">
+              API Last Accident Insert: <span id="last-accident-insert">N/A</span>
+            </div>
           </div>
         </div>
       </div>
