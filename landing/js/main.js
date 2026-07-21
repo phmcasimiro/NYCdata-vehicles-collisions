@@ -101,13 +101,7 @@
   var kpiElements = document.querySelectorAll('.hero__kpi-value');
 
   function formatNumber(num) {
-    if (num >= 1000000) {
-      return (num / 1000000).toFixed(2) + 'M';
-    }
-    if (num >= 1000) {
-      return (num / 1000).toFixed(0) + 'K';
-    }
-    return num.toString();
+    return num.toLocaleString('en-US');
   }
 
   function animateCounter(element) {
@@ -156,7 +150,67 @@
 
   // Trigger counters on scroll or on load if already visible
   window.addEventListener('scroll', initCounters, { passive: true });
-  window.addEventListener('load', initCounters);
+  window.addEventListener('load', function () {
+    loadDynamicKPIs();
+  });
+
+  async function loadDynamicKPIs() {
+    var API_STATUS_URL = 'http://localhost:8050/api/status';
+    try {
+      var response = await fetch(API_STATUS_URL);
+      if (!response.ok) throw new Error('Falha na resposta da API');
+      var data = await response.json();
+
+      // Atualiza o target de Records Processed (Aprovados + Rejeitados)
+      var totalProcessed = data.total_approved + data.total_rejected_dlq;
+      var processedEl = document.querySelector('[data-kpi="records-processed"]');
+      if (processedEl) {
+        processedEl.setAttribute('data-target', totalProcessed);
+      }
+
+      // Quantidade da última carga incremental
+      var lastQtyEl = document.querySelector('[data-kpi="last-ingest-qty"]');
+      if (lastQtyEl) {
+        lastQtyEl.setAttribute('data-target', data.last_ingest_qty);
+      }
+
+      // Registros aprovados/validados
+      var approvedEl = document.querySelector('[data-kpi="records-approved"]');
+      if (approvedEl) {
+        approvedEl.setAttribute('data-target', data.total_approved);
+      }
+
+      // Registros rejeitados (DLQ)
+      var rejectedEl = document.querySelector('[data-kpi="records-rejected"]');
+      if (rejectedEl) {
+        rejectedEl.setAttribute('data-target', data.total_rejected_dlq);
+      }
+
+      // Data da última coleta
+      var lastDateEl = document.getElementById('last-ingest-date');
+      if (lastDateEl && data.last_ingest_date !== 'N/A') {
+        var dateObj = new Date(data.last_ingest_date);
+        var formattedDate = dateObj.toLocaleDateString('pt-BR') + ' às ' + dateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        lastDateEl.textContent = formattedDate;
+      }
+
+      // Data do acidente mais recente carregado (watermark)
+      var lastAccidentEl = document.getElementById('last-accident-insert');
+      if (lastAccidentEl && data.watermark_crash_date && data.watermark_crash_date !== 'N/A') {
+        var accidentDate = new Date(data.watermark_crash_date);
+        lastAccidentEl.textContent = accidentDate.toLocaleDateString('pt-BR');
+      }
+
+      // Reinicializa contadores para ler os novos targets dinâmicos
+      kpiElements = document.querySelectorAll('.hero__kpi-value');
+      countersAnimated = false;
+      initCounters();
+    } catch (e) {
+      console.warn('Erro ao carregar telemetria em tempo real (fallback estático ativo):', e);
+      // Dispara contadores estáticos de fallback
+      initCounters();
+    }
+  }
 
   // ========================================================================
   // 5. ARCHITECTURE TABS — Switch content panels

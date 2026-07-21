@@ -5,24 +5,24 @@ stages:
     deps:
     - path: NYCdata/scripts/1_nycdata_etl.py
       hash: md5
-      md5: 2fb374a59ec8132cab9ef9a21d0859c0
-      size: 10045
+      md5: ce1df734a778f0672dd6b6264b7bcd30
+      size: 13273
     outs:
     - path: NYCdata/metadata/bronze_status.json
       hash: md5
-      md5: f63279d1c1776bd8069782d84befff56
-      size: 114
+      md5: ac902374e416d2099c3db39cb792e9b6
+      size: 199
   transform_silver:
     cmd: python NYCdata/scripts/2_nycdata_silver.py
     deps:
     - path: NYCdata/metadata/bronze_status.json
       hash: md5
-      md5: f63279d1c1776bd8069782d84befff56
-      size: 114
+      md5: ac902374e416d2099c3db39cb792e9b6
+      size: 199
     - path: NYCdata/scripts/2_nycdata_silver.py
       hash: md5
-      md5: 1599d0d2cd35c198a8d1569e999613eb
-      size: 16185
+      md5: 3a25457eb9787f07185d6c6f54c9110e
+      size: 23979
     - path: NYCdata/scripts/schemas.py
       hash: md5
       md5: 3dbeca5b52eeef9095a10ca147ac51ef
@@ -30,5 +30,5 @@ stages:
     outs:
     - path: NYCdata/metadata/silver_status.json
       hash: md5
-      md5: e7ec57e86d01b3a47c6a3f0936aea054
-      size: 285
+      md5: f3d39cb0f0c1adedd599cd0a64b3e8a6
+      size: 382

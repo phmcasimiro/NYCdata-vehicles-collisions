@@ -398,10 +398,31 @@ button {
 }
 
 /* KPIs row */
-.hero__kpis {
+.hero__kpis-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-top: 1.25rem;
+}
+
+.hero__kpi-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hero__kpi-group-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gold-accent);
+  opacity: 0.85;
+  font-weight: var(--fw-semi);
+}
+
+.hero__kpis-row {
   display: flex;
   gap: 2.5rem;
-  margin-top: 1rem;
 }
 
 .hero__kpi {
@@ -421,6 +442,14 @@ button {
   font-size: var(--small-size);
   color: var(--text-muted);
   font-weight: var(--fw-regular);
+}
+
+.hero__kpi-timestamp {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  font-style: italic;
+  opacity: 0.9;
 }
 
 /* Hero visual (right) — floating dashboard mockup */
@@ -1110,7 +1139,11 @@ button {
     font-size: 0.75rem;
   }
 
-  .hero__kpis {
+  .hero__kpis-grid {
+    gap: 1.25rem;
+  }
+
+  .hero__kpis-row {
     gap: 1.5rem;
   }
 
@@ -1180,7 +1213,16 @@ button {
 
 /* Small mobile (≤480px) */
 @media (max-width: 480px) {
-  .hero__kpis {
+  .hero__kpis-grid {
+    align-items: center;
+    text-align: center;
+  }
+
+  .hero__kpi-group {
+    align-items: center;
+  }
+
+  .hero__kpis-row {
     flex-direction: column;
     gap: 1rem;
     align-items: center;
